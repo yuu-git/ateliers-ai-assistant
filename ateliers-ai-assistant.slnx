@@ -1,0 +1,17 @@
+<Solution>
+  <Configurations>
+    <Platform Name="ARM64" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="src/Ateliers.Ai.Assistant.Core/Ateliers.Ai.Assistant.Core.csproj" />
+  <Project Path="src/Ateliers.Ai.Assistant.Application/Ateliers.Ai.Assistant.Application.csproj" />
+  <Project Path="src/Ateliers.Ai.Assistant.Infrastructure/Ateliers.Ai.Assistant.Infrastructure.csproj" />
+  <Project Path="tests/Ateliers.Ai.Assistant.Desktop.Tests/Ateliers.Ai.Assistant.Desktop.Tests.csproj" />
+  <Project Path="src/Ateliers.Ai.Assistant.Desktop/Ateliers.Ai.Assistant.Desktop.csproj">
+    <Platform Solution="*|ARM64" Project="ARM64" />
+    <Platform Solution="*|x64" Project="x64" />
+    <Platform Solution="*|x86" Project="x86" />
+    <Deploy />
+  </Project>
+</Solution>

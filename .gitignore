@@ -1,0 +1,37 @@
+# Visual Studio and per-user settings
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# .NET build, test, and packaging output
+**/[Bb]in/
+**/[Oo]bj/
+**/[Tt]est[Rr]esults/
+artifacts/
+AppPackages/
+BundleArtifacts/
+*.nupkg
+*.snupkg
+*.msix
+*.msixbundle
+*.appx
+*.appxbundle
+
+# Credentials, signing material, and local diagnostics
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+*.key
+*.snk
+*.dmp
+*.etl
+*.log
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini

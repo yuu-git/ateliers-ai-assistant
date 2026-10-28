@@ -1,0 +1,42 @@
+using Ateliers.Ai.Assistant.Desktop.Tests;
+
+if (args.Length == 2 && args[0] == "--ollama-model")
+{
+    await ServiceTests.LiveConversation(args[1]);
+    return;
+}
+var tests = new (string Name, Func<Task> Run)[]
+{
+    ("画像のみ・削除・置換・会話履歴", ImageMessageTests.SendingAndHistory),
+    ("画像の中止・失敗・履歴除外", ImageMessageTests.CancelAndFailure),
+    ("Ollama の images JSON 契約", ImageMessageTests.HttpPayload),
+    ("画像非対応モデルのエラー本文", ImageMessageTests.ServerError),
+    ("画像データの保持と表示経路", ImageMessageTests.MemoryAndDisplay),
+    ("Markdown 書式・コード原文", MarkdownTests.Formatting),
+    ("HTML 安全化・URL・リソース制限", MarkdownTests.Security),
+    ("未完了 Markdown・本文キャッシュ・長い履歴", MarkdownTests.StreamingAndCache),
+    ("表示差分・旧会話・逆順結果の破棄", MarkdownTests.StaleUpdates),
+    ("モデル管理 API・保持時間・ps DTO", ModelLifecycleTests.HttpContract),
+    ("管理対象の追跡・限定停止・手動停止", ModelLifecycleTests.OwnershipAndManualStop),
+    ("モデル切替の排他・両画面の同期", ModelLifecycleTests.SelectionAndSharedState),
+    ("チャット中の停止禁止・終了時の停止", ModelLifecycleTests.ChatExclusionAndCleanup),
+    ("停止失敗・状態不明・終了期限", ModelLifecycleTests.FailuresAndDeadline),
+    ("モデル選択・空白入力・ダミー送受信", ViewModelTests.InitialState),
+    ("逐次表示と二重送信防止", ViewModelTests.Streaming),
+    ("会話継続・モデル変更・新しい会話", ViewModelTests.Conversation),
+    ("中止した送受信を履歴から除外", ViewModelTests.Cancellation),
+    ("部分応答の失敗・空応答・再送信", ViewModelTests.FailureRecovery),
+    ("モデル一覧の失敗・空一覧・再取得", ViewModelTests.ModelFailures),
+    ("終了時キャンセルと遅れて届く結果", ViewModelTests.DisposeDuringWork),
+    ("モデル一覧 HTTP 契約", ServiceTests.Models),
+    ("NDJSON・UTF8 分割・送信履歴", ServiceTests.Streaming),
+    ("異常応答・未完了ストリーム", ServiceTests.ProtocolErrors),
+    ("HTTP エラー・接続拒否", ServiceTests.ConnectionErrors),
+    ("読み取り中のキャンセルとタイムアウト", ServiceTests.CancellationAndTimeout),
+};
+foreach (var test in tests)
+{
+    await test.Run();
+    Console.WriteLine($"PASS: {test.Name}");
+}
+Console.WriteLine($"{tests.Length} checks passed.");

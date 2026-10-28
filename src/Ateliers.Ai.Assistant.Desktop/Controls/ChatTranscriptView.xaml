@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl x:Class="Ateliers.Ai.Assistant.Desktop.Controls.ChatTranscriptView"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <InfoBar x:Name="DisplayError" Severity="Warning" IsClosable="False" Title="チャット表示" />
+        <WebView2 x:Name="Browser" Grid.Row="1" AutomationProperties.Name="チャット履歴" />
+        <TextBox x:Name="FallbackText" Grid.Row="1" Visibility="Collapsed" IsReadOnly="True"
+                 AcceptsReturn="True" TextWrapping="Wrap" AutomationProperties.Name="チャット原文" />
+    </Grid>
+</UserControl>

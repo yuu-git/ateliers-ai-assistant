@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "ateliers-ai-assistant (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "ateliers-ai-assistant (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
