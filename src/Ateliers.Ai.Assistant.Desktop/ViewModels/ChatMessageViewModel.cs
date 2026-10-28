@@ -1,4 +1,6 @@
 using Ateliers.Ai.Assistant.Core.Chat;
+using Ateliers.Ai.Assistant.Application.Conversations;
+using System;
 
 namespace Ateliers.Ai.Assistant.Desktop.ViewModels;
 
@@ -12,14 +14,32 @@ public sealed class ChatMessageViewModel : ObservableObject
     /// <param name="message">表示元の原文と任意の添付を持つメッセージ。</param>
     /// <param name="model">操作または送信に使用するモデル名。</param>
     /// <param name="statusText">受信中・完了などの初期状態表示。</param>
-    public ChatMessageViewModel(ChatMessage message, string model = "", string statusText = "")
+    /// <param name="id">復元する識別子。新規作成時は省略する。</param>
+    /// <param name="createdAt">復元する作成日時。新規作成時は現在 UTC を使う。</param>
+    /// <param name="includedInHistory">完了ターンとして次回要求へ含めるかどうか。</param>
+    public ChatMessageViewModel(ChatMessage message, string model = "", string statusText = "",
+        Guid? id = null, DateTimeOffset? createdAt = null, bool includedInHistory = false)
     {
+        Id = id ?? Guid.NewGuid();
+        CreatedAt = createdAt ?? DateTimeOffset.UtcNow;
+        IncludedInHistory = includedInHistory;
         Role = message.Role;
         _content = message.Content;
         Model = model;
         _statusText = statusText;
         Image = message.Image;
     }
+
+    /// <summary>保存・復元を通して維持するメッセージ識別子。</summary>
+    public Guid Id { get; }
+    /// <summary>メッセージ作成日時。</summary>
+    public DateTimeOffset CreatedAt { get; }
+    /// <summary>完了した送受信として次回の要求に含めるかどうか。</summary>
+    public bool IncludedInHistory { get; private set; }
+    /// <summary>送受信の両方が完了した時だけ送信履歴へ確定する。</summary>
+    public void IncludeInHistory() => IncludedInHistory = true;
+    /// <summary>HTML を含めず、保存用の不変スナップショットを作る。</summary>
+    public ConversationMessage Capture() => new(Id, Message, Model, StatusText, CreatedAt, IncludedInHistory);
 
     /// <summary>メッセージ送信者の役割を取得する。</summary>
     public ChatRole Role { get; }

@@ -1,4 +1,4 @@
-# Ateliers AI Assistant — Phase 1 + モデル管理 + Markdown + 画像貼り付け
+# Ateliers AI Assistant — Phase 2: 履歴と共通基盤
 
 WinUI 3 + MVVM のローカル AI チャットです。Ollama のモデル一覧から選択し、回答を逐次表示して複数ターンの会話を続けられます。生成中の中止、エラー表示、新しい会話に対応しています。
 
@@ -37,13 +37,76 @@ dotnet build src/Ateliers.Ai.Assistant.Desktop/Ateliers.Ai.Assistant.Desktop.csp
 
 ## 会話と失敗の扱い
 
-- モデルは自動選択せず、利用者が選択します。「一覧を更新」は利用可能なら現在の選択を維持します。モデルの自動ダウンロードは行いません。
+- 初回は利用者がモデルを選択し、以後は最後の選択が存在すれば起動時に復元します。自動ロードやダウンロードは行いません。「一覧を更新」は利用可能なら現在の選択を維持します。
 - 独自のシステム指示は送信しません。モデルの生成オプションを変更せず、`message.content` を回答として表示します。`thinking` は表示・履歴に含めません。
 - 完了した送受信と今回のユーザー入力を毎回送信します。アプリ側では履歴を切り詰めません。Ollama・モデル側のコンテキスト上限の制約は残ります。
 - 中止・失敗した送受信は、部分本文を含め画面に状態付きで残し、そのターンの入力と回答は両方とも次回の履歴から除外します。
 - 一覧取得の期限は 10 秒、生成全体は既存の試験コードと同じ 10 分です。ストリームの読み取り待機にも期限を適用します。
 - 生成中は中止だけを有効にし、終了時にもキャンセルを伝播します。通信失敗後は操作可能な状態へ戻し、エラーを表示します。自動再試行は行いません。
-- 設定・モデル選択・会話はアプリ終了時に破棄します。Windows Service、SQLite、履歴保存は実装していません。
+- 新規会話はメモリ内で開始します。必要な会話だけ「会話を保存」で名前を指定して保存し、チャット内部の一覧から再開・削除できます。Windows Service は実装していません。
+
+## 会話の保存と再開（Phase 2）
+
+- 未保存会話は DB に記録せず、空スレッドも作りません。会話名は保存ダイアログで指定し、同じボタンから変更できます。
+- 保存内容はメッセージ順・役割・Markdown 原文・日時・送信時モデル・状態・画像と、未送信の入力文・添付です。HTML・DOM・縮小前の原画像は保存しません。
+- 保存済み会話の応答は完了・中止・失敗時にまとめて自動保存します。下書き・モデル選択の変更は500ms集約します。中止・失敗ターンは復元しますが次回要求には送りません。
+- 「新しい会話」・別会話・画面離脱・通常終了では、必要に応じて保存／保存せず破棄／キャンセルを選びます。保存済みの変更は先に保存を試み、失敗時も確認します。保存失敗では未保存表示とメモリ内容を維持します。
+- 保存モデルが一覧にない会話はモデル未選択として通知します。存在する場合も選択だけでロードせず、旧モデルの解放は既存の管理方針に従います。
+- 削除はスレッド単位で確認し、メッセージ・画像をカスケード削除します。ごみ箱・復元・検索・自動削除・バックアップ UI はありません。
+
+## 固定保存先と運用
+
+Debug / Release でデータを分離します。下表は Release 用で、Debug は `Ai-Assistant` を `Ai-Assistant.Debug` に置き換えます。Roaming / Local の両方で設定・会話 DB・画像・ログ・キャッシュ・一時領域を分離し、設定画面に環境名を表示します。環境はビルド構成で自動決定し、利用者向けの切替設定はありません。
+
+**従来のデータはそのまま Release 用に残します。** Debug は空の状態から開始し、既存会話・設定の移動・コピー・削除は行いません。Ollama の接続先とモデル管理の対象は共通です。
+
+| 対象 | 保存先 |
+| --- | --- |
+| 設定 | `%APPDATA%/Ateliers-Dev/Ai-Assistant/settings.json` |
+| SQLite DB | `%LOCALAPPDATA%/Ateliers-Dev/Ai-Assistant/data/assistant.db` |
+| 診断ログ | `%LOCALAPPDATA%/Ateliers-Dev/Ai-Assistant/logs/` |
+| 将来のキャッシュ・一時領域 | 同 Local ルートの `cache/`・`temp/`（現在は作成・利用しない） |
+
+設定画面で4種類の固定パスを表示・コピーでき、「開く」で必要な対象フォルダーだけを作成して Explorer を開きます。任意パス設定や DB 編集 UI はありません。設定は最後の選択モデルだけで、不正 JSON は自動上書きせず、修復・削除後に「設定を再読み込み」で復帰します。
+
+DB は最初の保存時に作成し、既存 DB は Migration で更新します。破損・ロック・アクセス失敗・Migration 失敗を通知し、削除して作り直す処理はありません。使用中 DB の消失も検知します。会話更新はトランザクション単位で置き換え、版番号で別ウィンドウからの上書きを拒否します。SQLite I/O は UI スレッド外で行います。
+
+診断ログは各2 MiB・最大3ファイルです。固定操作識別子・例外型・HRESULT だけを記録し、会話全文・画像・SQL・資格情報・例外メッセージは記録しません。ログの書込失敗自体で処理を落とさず、元の保存・設定エラーは画面に通知します。
+
+**運用上の制約:** 保存は暗号化しません。長い会話・多数の画像では DB とメモリ使用量が増えます。自動保存は変更ごとに全スナップショットをトランザクションで置き換える MVP で、差分永続化・複数プロセスの調停・自動容量管理は行いません。強制終了は保存されていない変更を失う場合があります。SQLite は `assistant.db-wal` / `assistant.db-shm` 等を作る場合があるため、稼働中 DB の単純コピーは正式なバックアップ手順ではありません。移行・バックアップ前にはアプリを終了し、DB と補助ファイルの整合性を確保してください。
+
+MSIX では `desktop6:FileSystemWriteVirtualization=disabled` と `unvirtualizedResources` を指定し、AppData の書込リダイレクトを抑止します。パッケージ削除後も固定保存先のデータは自動削除されません。Store 配布時の制限付き機能の承認や別ユーザー・別 OS での挙動は別途確認が必要です。[Microsoft の説明](https://learn.microsoft.com/en-us/windows/msix/desktop/flexible-virtualization)を参照してください。
+
+## EF Core と Migration
+
+追加 NuGet は Infrastructure の `Microsoft.EntityFrameworkCore.Sqlite` 8.0.33 と `Microsoft.EntityFrameworkCore.Design` 8.0.33（開発用・`PrivateAssets=all`）です。推移依存に EF Core / Microsoft.Data.Sqlite / SQLitePCLRaw が含まれます。プロジェクトは増やしていません。Release は合意済みの `PublishTrimmed=false` とし、EF Core のリフレクションと Migration を保持します。
+
+**Phase 1 からの発行設定切替:** 古い trimming 済みの `publish/` へそのまま重ねると、以前のランタイム DLL が残り、起動時の `ComInterfaceEntry` 型読込で失敗する場合があります。既存の発行用生成物だけを整理するか、空の別フォルダーを発行先にしてから発行してください。設定・会話 DB の保存先を削除する必要はありません。
+
+初期 Migration は `Conversations/Migrations/20261028185039_InitialConversations`。会話・メッセージ・画像の3テーブルと外部キー・一意制約を作ります。通常起動は `EnsureDeleted` / `EnsureCreated` を使わず、`MigrateAsync` を使用します。
+
+```powershell
+dotnet tool restore
+dotnet ef migrations list --project src/Ateliers.Ai.Assistant.Infrastructure --startup-project src/Ateliers.Ai.Assistant.Infrastructure --no-connect
+# スキーマを変更するとき（既存のユーザーデータをバックアップしてから適用する）
+dotnet ef migrations add <MigrationName> --project src/Ateliers.Ai.Assistant.Infrastructure --startup-project src/Ateliers.Ai.Assistant.Infrastructure --output-dir Conversations/Migrations
+```
+
+通知は Application の `NotificationDto` / `NotificationKind` だけを追加しました。チャットモデルと分け、将来の通知フィードへ日時・種別・見出し・Markdown 原文を渡す契約に限定し、通知配信・Web 収集・Service は実装していません。
+
+### Phase 2 の主な変更ファイル
+
+| 配置 | 追加・変更と責務 |
+| --- | --- |
+| `Application/Conversations/IConversationStore.cs` | スナップショット・一覧 DTO と会話ストア契約 |
+| `Application/Storage`・`Application/Settings`・`Application/Notifications` | 固定パス、診断、設定、通知表示の最小契約 |
+| `Infrastructure/Conversations` | `AssistantDbContext`、`SqliteConversationStore`、初期 Migration と ModelSnapshot |
+| `Infrastructure/Storage` | `AppDataPaths`、`JsonUserSettingsStore`、`FileDiagnosticLog` |
+| `Desktop/ViewModels/ChatViewModel.Persistence.cs`・`ChatMessageViewModel.cs`・`SettingsViewModel.cs` | 保存状態、確認依頼、復元、設定操作。既存 `ChatViewModel.cs` は編集・送信の確定点と接続 |
+| `Desktop/MainWindow.xaml(.cs)`・`App.xaml.cs`・`Storage/FixedDataFolderOpener.cs` | 画面、ダイアログ、終了待機、DI、固定フォルダー起動 |
+| `Desktop/Package.appxmanifest`・Desktop / Infrastructure の csproj | 書込仮想化設定、EF 依存、Release trimming 設定 |
+| `Desktop/Diagnostics`・`tests/PersistenceTests.cs`・`tests/Verify-Storage*.ps1`・`tests/Verify-ReleaseSettings.ps1` | 生成物・利用者データを区別した保存と実画面検証。テスト C# は既存 `tests/Ateliers.Ai.Assistant.Desktop.Tests/` 内 |
+| `.gitignore`・`dotnet-tools.json` | DB・補助ファイルの除外と EF ツール固定 |
 
 ## 構成
 
@@ -55,7 +118,7 @@ dotnet build src/Ateliers.Ai.Assistant.Desktop/Ateliers.Ai.Assistant.Desktop.csp
 - `ModelManagementViewModel` / `LoadedModelViewModel`: ロード中モデル一覧と手動停止、サイズ・VRAM・量子化形式・ロード期限の表示。既存の `ChatViewModel` と同じ `ChatModelSession` を利用します。
 - `tests/Ateliers.Ai.Assistant.Desktop.Tests`: UI 非依存の ViewModel と偽の HTTP 応答による自動検証。外部テストパッケージ不要の実行プログラムです。
 
-依存方向は Core ← Application ← Infrastructure、Desktop → Application / Infrastructure を維持しています。Phase 1 で NuGet パッケージ・プロジェクトの追加は行っていません。例外詳細は `Trace` に出力し、ファイルログは後続で扱います。
+依存方向は Core ← Application ← Infrastructure、Desktop → Application / Infrastructure を維持しています。Phase 2 の保存契約は Application、EF Core・JSON・固定パス・制限付きログは Infrastructure、確認ダイアログ・Explorer・保存表示は Desktop に置いています。
 
 ## モデル管理と終了
 
@@ -65,10 +128,10 @@ dotnet build src/Ateliers.Ai.Assistant.Desktop/Ateliers.Ai.Assistant.Desktop.csp
 - 管理対象は、この起動中にロード要求またはチャット使用要求を送ったモデルだけです。一覧に表示されたという理由で管理対象にはしません。要求応答が失われた場合も終了時の確認対象にできるよう、要求直前に追跡します。
 - モデル変更では管理対象の旧モデルだけをアンロードし、新モデルは自動ロードしません。切替中とモデル操作中は送信・他のモデル操作を禁止します。停止失敗を表示し、旧モデルは終了時の確認対象に残します。
 - チャット中はチャット画面・モデル管理画面の両方で停止を禁止し、サービス層でも競合要求を拒否します。
-- 通常終了は `AppWindow.Closing` で一度保留し、生成やモデル操作をキャンセルしてから管理対象のロード状態を確認・停止します。全体で 5 秒、Window 側でも 6 秒の上限を置き、失敗を理由に終了を妨げません。
+- 通常終了は `AppWindow.Closing` で一度保留し、生成の中止待ちと会話の保存確認を行います。保存・破棄が完了した後に、管理対象のロード状態を確認・停止します。モデル解放は全体5秒、Window側6秒の上限を維持し、失敗を理由に終了を妨げません。保存確認のキャンセルでは終了しません。
 - 強制終了やクラッシュ時、および通信失敗・終了期限超過時のアンロードは保証できません。
 - **共有利用の制約:** 同じモデルを他アプリも利用しているかは Ollama API で判定できません。このアプリが使用したモデルの切替・終了時停止は他アプリにも影響し得るため、運用で調整してください。
-- このライフサイクルは Phase 1 の単一チャット用仕様です。将来、情報収集・画面監視や Windows Service を導入する際には、複数機能の利用権と停止条件を見直します。SQLite、Windows Service、モデルのダウンロード・削除・更新は追加していません。
+- このモデルライフサイクルは単一チャット用仕様を維持しています。将来、情報収集・画面監視や Windows Service を導入する際には、複数機能の利用権と停止条件を見直します。Ollama サーバー操作、Service、モデルのダウンロード・削除・更新は追加していません。
 
 手動確認では、未ロードのモデルを選んで起動し、「モデル管理」の表示と停止、モデル切替後の旧モデル停止・新モデル未ロード、チャット中の停止禁止、モデルがロード済みの状態でウィンドウを閉じた後の `/api/ps` を確認してください。
 
@@ -83,11 +146,32 @@ Markdown 対応で追加した依存は Desktop の `Markdig` 1.5.0、`HtmlSanit
 ```powershell
 dotnet build ateliers-ai-assistant.slnx -p:Platform=x64
 dotnet run --project tests/Ateliers.Ai.Assistant.Desktop.Tests
+dotnet run --project tests/Ateliers.Ai.Assistant.Desktop.Tests -c Release
 ```
 
 テストは `dotnet test` ではなく `dotnet run` で実行します。失敗時は非 0 の終了コードになります。Ollama を起動せずに、選択・空白入力、逐次表示、会話継続、モデル変更、中止・失敗した履歴の除外、部分応答、一覧取得失敗、異常 JSON、UTF-8 分割、未完了ストリーム、接続拒否、タイムアウト、終了時キャンセルを検証できます。
 
 Markdown の書式・HTML 安全化・URL 制限・変換キャッシュ・世代と更新順の検証もこのプログラムで実行します。
+
+Phase 2 では実 SQLite・Migration・BLOB・下書き・上書き競合・カスケード削除・保存失敗・離脱確認・DBロック／消失／破損・不正設定・固定フォルダー境界・ログ上限・Debug/Release の分離も含め、全36シナリオを実行します。保存先は一意の一時ディレクトリで、利用者の会話 DB は変更しません。
+
+```powershell
+# Debug / Unpackaged ビルド後。Ollama と利用者の DB は使いません。
+./tests/Verify-StorageDisplay.ps1
+./tests/Verify-StorageDialogs.ps1
+```
+
+前者は実ウィンドウの終了待機・キャンセルと、別プロセスでの Markdown・画像・下書き復元を確認します。後者は UI Automation で実際の保存名・離脱・終了・削除ダイアログと、読み取り専用の保存先4項目を操作します。Debug 専用の検証入口は Release に含めません。
+
+発行した Release を確認する場合は、`Verify-ReleaseSettings.ps1` で起動・設定表示・終了を確認できます。`-OpenExplorer` は実際の DB 格納フォルダーを開き、検証で新しく開いた Explorer だけを閉じます。
+
+```powershell
+./tests/Verify-ReleaseSettings.ps1 -OpenExplorer
+# 通常のユーザー保存先へ GUID 付き検証スレッド2件を作成し、再起動・復元・削除を確認する明示的な検証
+./tests/Verify-StorageDialogs.ps1 -ExecutablePath 'src/Ateliers.Ai.Assistant.Desktop/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/Ateliers.Ai.Assistant.Desktop.exe'
+```
+
+後者は作成した検証スレッド2件を最後に削除します。既存の会話は編集・削除しませんが、失敗で検証を中断した場合は GUID 付きの検証スレッドが残る場合があります。
 
 実 WebView2 の表示検証は、前述の Debug / Unpackaged ビルド後に実行します。Ollama は操作しません。`--verify-markdown` は Debug にだけ含まれる検証用起動モードです。
 
@@ -135,7 +219,26 @@ Markdown の DOM は専用検証で確認し、既存 UI テストはネイテ�
 
 表示更新は本文全体やページを再読み込みせず、変更メッセージに限定します。過去を読んでいるときのスクロール位置を維持します。ただし会話全体の DOM は保持するため、非常に長い会話や巨大なコードではメモリ・描画負荷が増えます。WebView2 障害後の自動再初期化は行わず、原文表示で継続するかアプリを再起動します。
 
-## 検証記録
+## データ環境分離の検証記録（2026-10-29）
+
+- Debug ビルド・Release 発行に成功。XML ドキュメント生成を有効にしたビルドも警告0・エラー0。
+- Debug / Release とも全36シナリオ成功。同じ基準フォルダーに用意した両環境で、Debug の保存・削除後も Release の DB・設定・ログが同じ内容であることをハッシュで確認。
+- 両構成の実画面で環境名と保存先4項目を確認。Debug の隔離保存先で、保存・再起動・画像・下書き復元と確認ダイアログの回帰検証も成功。
+- 通常の自動テストと診断モードは一時保存先を使う。実画面の通常起動は Debug が `Ai-Assistant.Debug`、Release が従来の `Ai-Assistant` を使う。
+
+## Phase 2 の検証記録（2026-10-29）
+
+- x64 Debug の通常／Unpackaged ビルド成功。XML ドキュメント生成の確認も警告0・エラー0。
+- Debug / Release の自動検証は全35シナリオ成功。実 SQLite の保存・再読込・Migration、画像 BLOB、競合、失敗・破損・ロックと、会話切替前の旧遅延保存の排除を確認。
+- 実ウィンドウで未保存の終了キャンセル、非同期保存完了前の終了抑止、別プロセスでの原文・画像・下書き復元と追記の自動保存を確認。
+- UI Automation で保存名・離脱・終了・削除の実 ContentDialog と、固定パス4項目を確認。Release 発行物でも保存・終了・再起動・下書き復元・削除を確認。
+- x64 Release 発行成功（trimming 無効）。古い発行用 DLL の残留を解消したクリーン発行物で、起動・設定・Explorer の実起動・通常終了を確認。
+- Windows 11 x64 の Debug で MSIX / Unpackaged のパスをファイルハンドルから比較し、Roaming / Local / data / logs が表示と一致。MSIX 検証は別 ID の一時開発パッケージを使い、終了後に削除。既存の開発用登録は変更しない。
+- MSIX の生成は成功。署名なしの検証用パッケージで、環境に `mspdbcmf.exe` がないためシンボルパッケージを作れない警告が1件。実行用パッケージの生成には影響しない。
+- 実 WebView2 の Markdown 表示と貼り付け104回、Ollama の実画面でロード・2ターン会話・中止・切替・通常終了時アンロードの回帰確認に成功。
+- Release MSIX、Store 配布、別 OS・x86 / ARM64、ACL 自体を変更するアクセス拒否試験は未検証。Release の実画面検証は Unpackaged。アクセス拒否の通知は偽操作・書込不可パスで確認。
+
+## Phase 1 の検証記録（2026-10-28）
 
 - x64 / Debug のビルド成功（警告 0、エラー 0）。
 - Ollama 不要の自動検証: 26 シナリオ成功。画像のみの送信、画像履歴、削除・置換、中止・失敗画像の除外、API の images 配列、Ollama エラー本文を追加検証。
@@ -160,6 +263,6 @@ Markdown の DOM は専用検証で確認し、既存 UI テストはネイテ�
 - `OllamaChatService` / `OllamaJsonContext`: `messages[].images` へ PNG の Base64 を1件設定します。画像なしでは省略し、Data URL 接頭辞は API に送りません。非対応等の Ollama エラー本文を長さ制限付きで表示します。将来の画面監視も同じ UI 非依存のリクエストを利用できます。
 - `TranscriptProtocol` / `ChatTranscriptView` / ローカル JS・CSS・CSP: Markdown の安全化済み HTML と分離して PNG 添付を表示します。CSP は `img-src data:` とし、アプリで用意した PNG Data URL だけを専用フィールドから画像要素へ設定します。Markdown の画像・生 HTML・外部画像・外部通信は引き続き禁止します。
 
-添付は1メッセージ1枚です。ファイルのコピーからの添付、複数添付、ドラッグ＆ドロップ、編集・切り抜き、OCR、自動的なモデル能力判定、画像履歴の永続化は実装していません。WebView2 が使えない場合の履歴フォールバックは画像サイズをテキスト表示します。
+添付は1メッセージ1枚です。ファイルのコピーからの添付、複数添付、ドラッグ＆ドロップ、編集・切り抜き、OCR、自動的なモデル能力判定は実装していません。Phase 2 の保存済み会話・下書きの画像は BLOB として永続化します。WebView2 が使えない場合の履歴フォールバックは画像サイズをテキスト表示します。
 
-モデル変更では過去の画像も含め会話を維持します。非対応モデルに変えたときは「新しい会話」を使ってください。画像履歴は会話全体で自動削減しないため、長い会話ではメモリ・再送信量と解析負荷が増えます。アプリから画像をファイル・DB に保存する処理はありません。
+モデル変更では過去の画像も含め会話を維持します。非対応モデルに変えたときは「新しい会話」を使ってください。画像履歴は会話全体で自動削減しないため、長い会話ではメモリ・再送信量・DB サイズと解析負荷が増えます。画像の独立ファイルへの書き出しや未保存会話の自動永続化は行いません。

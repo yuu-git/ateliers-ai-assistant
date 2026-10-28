@@ -11,7 +11,10 @@ $alternative = @((Invoke-RestMethod -Uri 'http://localhost:11434/api/tags' -Time
 # 先に README の Unpackaged ビルドを実行する。指定モデルを導入済みの Ollama が必要。
 $appPath = Join-Path $PSScriptRoot '../src/Ateliers.Ai.Assistant.Desktop/bin/x64/Debug/net8.0-windows10.0.19041.0/win-x64/Ateliers.Ai.Assistant.Desktop.exe'
 if ($ExecutablePath) { $appPath = (Resolve-Path -LiteralPath $ExecutablePath).Path }
-$appProcess = Start-Process -FilePath $appPath -WorkingDirectory (Split-Path $appPath) -WindowStyle Hidden -PassThru
+$uiProfileRoot = Join-Path $env:TEMP ('ateliers-live-ui-' + [Guid]::NewGuid().ToString('N'))
+$startArguments = @{ FilePath = $appPath; WorkingDirectory = (Split-Path $appPath); WindowStyle = 'Hidden'; PassThru = $true }
+if (!$ExecutablePath) { $startArguments.ArgumentList = @('--verify-storage-interactive-live', ('"' + $uiProfileRoot + '"')) }
+$appProcess = Start-Process @startArguments
 function Find-Named($root, [string]$name) {
     $condition = [System.Windows.Automation.PropertyCondition]::new(
         [System.Windows.Automation.AutomationElement]::NameProperty, $name)
@@ -119,7 +122,11 @@ try {
     if (!(Has-Text '応答を中止しました。')) { throw 'Cancellation status was not displayed' }
     Write-Output 'PASS: cancellation and UI recovery'
     Invoke-Button $newButton
-    Wait-Until { Has-Text '新しい会話を開始しました。' } 'New conversation did not execute' 5
+    Wait-Until {
+        $discard = Find-Named $window '保存せず破棄'
+        if ($null -ne $discard -and $discard.Current.IsEnabled) { Invoke-Button $discard }
+        Has-Text '新しい会話を開始しました。'
+    } 'New conversation did not execute' 10
     Write-Output 'PASS: new conversation'
 
     $navigation = Find-Named $window 'モデル管理'
@@ -169,4 +176,7 @@ finally {
         $appProcess.CloseMainWindow() | Out-Null
         if (!$appProcess.WaitForExit(8000)) { Stop-Process -Id $appProcess.Id }
     }
+    $resolvedProfile = [IO.Path]::GetFullPath($uiProfileRoot)
+    if ([IO.Path]::GetDirectoryName($resolvedProfile) -ne [IO.Path]::GetFullPath($env:TEMP).TrimEnd([IO.Path]::DirectorySeparatorChar) -or [IO.Path]::GetFileName($resolvedProfile) -notlike 'ateliers-live-ui-*') { throw 'Unexpected live UI verification profile' }
+    if (Test-Path -LiteralPath $resolvedProfile) { Remove-Item -LiteralPath $resolvedProfile -Recurse -Force }
 }

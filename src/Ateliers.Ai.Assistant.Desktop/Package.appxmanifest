@@ -6,7 +6,8 @@
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
   xmlns:systemai="http://schemas.microsoft.com/appx/manifest/systemai/windows10"
-  IgnorableNamespaces="uap rescap systemai">
+  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+  IgnorableNamespaces="uap rescap systemai desktop6">
 
   <Identity
     Name="9de83433-c096-4f35-80be-b9659ce705da"
@@ -16,6 +17,7 @@
   <mp:PhoneIdentity PhoneProductId="9de83433-c096-4f35-80be-b9659ce705da" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
     <DisplayName>ateliers-ai-assistant</DisplayName>
     <PublisherDisplayName>yuuko</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
@@ -48,6 +50,7 @@
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
     <systemai:Capability Name="systemAIModels"/>
   </Capabilities>
 </Package>

@@ -7,6 +7,16 @@ if (args.Length == 2 && args[0] == "--ollama-model")
 }
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("Debug/Release 保存先分離・既存データの維持", PersistenceTests.DebugAndReleaseIsolation),
+    ("固定保存先・未保存会話・遅延作成", PersistenceTests.PathsAndLazyCreation),
+    ("実SQLite・Migration・BLOB・競合・カスケード削除", PersistenceTests.SqliteRoundTripAndCascade),
+    ("会話復元・下書き画像・失敗ターン除外・自動保存", PersistenceTests.RestoreAndFollowUp),
+    ("保存・破棄・キャンセル・下書きのみの保存", PersistenceTests.LeaveChoicesAndDrafts),
+    ("保存失敗・遅い保存・新しい編集の維持", PersistenceTests.SaveFailuresAndLateEdits),
+    ("終了中止待機・モデル不存在・会話削除確認", PersistenceTests.CancelCloseMissingModelAndDelete),
+    ("DBロック・消失・破損・Migration失敗", PersistenceTests.DatabaseFailures),
+    ("設定JSON・連続更新・書込失敗・固定フォルダー", PersistenceTests.SettingsAndFolders),
+    ("ログの内容保護・保持上限", PersistenceTests.PrivateBoundedLogs),
     ("画像のみ・削除・置換・会話履歴", ImageMessageTests.SendingAndHistory),
     ("画像の中止・失敗・履歴除外", ImageMessageTests.CancelAndFailure),
     ("Ollama の images JSON 契約", ImageMessageTests.HttpPayload),

@@ -30,6 +30,10 @@ BundleArtifacts/
 *.dmp
 *.etl
 *.log
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
 
 # OS metadata
 .DS_Store

@@ -251,7 +251,7 @@ internal static class ImagePasteVerification
     }
     /// <summary>縮小検証用の3000×1600ピクセルの赤い PNG をメモリ内に生成する。</summary>
     /// <returns>呼び出し側で破棄する、合成 PNG のメモリ内ストリーム。</returns>
-    private static async Task<InMemoryRandomAccessStream> CreateRedImageAsync()
+    internal static async Task<InMemoryRandomAccessStream> CreateRedImageAsync()
     {
         var pixels = new byte[3000 * 1600 * 4];
         for (var i = 0; i < pixels.Length; i += 4) { pixels[i + 2] = 255; pixels[i + 3] = 255; }

@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 using Ateliers.Ai.Assistant.Application.Chat;
 using Ateliers.Ai.Assistant.Core.Chat;
 using Ateliers.Ai.Assistant.Application.Models;
+using Ateliers.Ai.Assistant.Application.Conversations;
+using Ateliers.Ai.Assistant.Application.Storage;
 
 namespace Ateliers.Ai.Assistant.Desktop.ViewModels;
 
@@ -42,7 +44,10 @@ public sealed partial class ChatViewModel : ObservableObject, IDisposable
     /// <param name="chatService">回答生成と利用可能モデルの一覧取得を行うサービス。</param>
     /// <param name="lifecycle">単一チャット用のモデル管理サービス。null ならモデル管理機能を使わない。</param>
     /// <param name="dispatch">サービス通知を UI スレッドへ移送する処理。省略時はその場で実行する。</param>
-    public ChatViewModel(IChatService chatService, IModelLifecycleService? lifecycle = null, Action<Action>? dispatch = null)
+    /// <param name="conversationStore">会話の保存先。null は永続化を使わない検証用構成。</param>
+    /// <param name="diagnostics">本文・画像を出さない診断ログ。省略時は永続ログを出さない。</param>
+    public ChatViewModel(IChatService chatService, IModelLifecycleService? lifecycle = null, Action<Action>? dispatch = null,
+        IConversationStore? conversationStore = null, IAppDiagnostics? diagnostics = null)
     {
         _chatService = chatService ?? throw new ArgumentNullException(nameof(chatService));
         _lifecycle = lifecycle;
@@ -54,13 +59,20 @@ public sealed partial class ChatViewModel : ObservableObject, IDisposable
         RefreshModelsCommand = new AsyncCommand(RefreshModelsAsync, () => CanEdit);
         CancelCommand = new RelayCommand(CancelReply,
             () => !_disposed && IsSending && _generation is { IsCancellationRequested: false });
-        NewConversationCommand = new RelayCommand(NewConversation, () => CanEdit);
+        NewConversationCommand = new RelayCommand(() =>
+        {
+            if (_conversationStore is null) NewConversation();
+            else _ = StartNewConversationAsync();
+        }, () => CanEdit);
         RemoveImageCommand = new RelayCommand(() => PendingImage = null, () => CanEdit && PendingImage is not null);
         LoadModelCommand = new AsyncCommand(() => RunModelOperationAsync(() => _lifecycle!.LoadAsync(SelectedModel!, _lifetime.Token)),
             () => CanEdit && SelectedModel is not null && _lifecycle?.IsStateKnown == true && !IsSelectedModelLoaded);
         UnloadModelCommand = new AsyncCommand(() => RunModelOperationAsync(() => _lifecycle!.UnloadAsync(SelectedModel!, _lifetime.Token)),
             () => CanEdit && SelectedModel is not null && _lifecycle?.IsStateKnown == true && IsSelectedModelLoaded);
         if (_lifecycle is not null) _lifecycle.Changed += LifecycleChanged;
+        _conversationStore = conversationStore;
+        _diagnostics = diagnostics;
+        InitializeConversationCommands();
     }
 
     /// <summary>中止・失敗したターンも含む、画面表示用のメッセージ一覧を取得する。</summary>
@@ -84,6 +96,7 @@ public sealed partial class ChatViewModel : ObservableObject, IDisposable
         private set
         {
             if (!SetProperty(ref _pendingImage, value)) return;
+            ConversationEdited();
             OnPropertyChanged(nameof(PendingImageDescription));
             SendCommand.NotifyCanExecuteChanged();
             RemoveImageCommand.NotifyCanExecuteChanged();
@@ -126,7 +139,7 @@ public sealed partial class ChatViewModel : ObservableObject, IDisposable
         get => _inputText;
         set
         {
-            if (SetProperty(ref _inputText, value)) SendCommand.NotifyCanExecuteChanged();
+            if (SetProperty(ref _inputText, value)) { SendCommand.NotifyCanExecuteChanged(); ConversationEdited(); }
         }
     }
 
@@ -141,6 +154,7 @@ public sealed partial class ChatViewModel : ObservableObject, IDisposable
             if (!CanEdit) { OnPropertyChanged(); return; }
             var previous = _selectedModel;
             SetProperty(ref _selectedModel, value);
+            ConversationEdited();
             NotifyCommands();
             if (_lifecycle is not null) ModelChangeTask = RunModelOperationAsync(() => previous is null
                 ? _lifecycle.RefreshAsync(_lifetime.Token) : _lifecycle.ReleasePreviousAsync(previous, _lifetime.Token), deferNotification: true);
@@ -160,10 +174,10 @@ public sealed partial class ChatViewModel : ObservableObject, IDisposable
         private set { if (SetProperty(ref _isLoadingModels, value)) NotifyCommands(); }
     }
     /// <summary>送信・一覧取得・画像準備・モデル操作・終了の競合がなく、入力できるか取得する。</summary>
-    public bool CanEdit => !_disposed && !IsSending && !IsLoadingModels && !_isManagingModel && !_isPreparingImage &&
+    public bool CanEdit => !_disposed && !_conversationBusy && !_leavingConversation && !IsSending && !IsLoadingModels && !_isManagingModel && !_isPreparingImage &&
         _lifecycle?.IsBusy != true && _lifecycle?.IsClosing != true;
     /// <summary>チャット、画像準備、一覧取得または共有モデル操作が進行中か取得する。</summary>
-    public bool IsBusy => IsSending || IsLoadingModels || _isManagingModel || _isPreparingImage || _lifecycle?.IsBusy == true;
+    public bool IsBusy => _conversationBusy || _leavingConversation || IsSending || IsLoadingModels || _isManagingModel || _isPreparingImage || _lifecycle?.IsBusy == true;
     /// <summary>最後に取得した状態で選択モデルがロード済みかどうかを取得する。</summary>
     public bool IsSelectedModelLoaded => SelectedModel is not null && _lifecycle?.LoadedModels.Any(
         model => ChatModelSession.SameModel(model.Name, SelectedModel)) == true;
@@ -238,11 +252,13 @@ public sealed partial class ChatViewModel : ObservableObject, IDisposable
         var assistant = new ChatMessageViewModel(new ChatMessage(ChatRole.Assistant, ""), model, "応答待ち…");
         using var generation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _generation = generation;
+        _sendFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         IsSending = true;
         ErrorMessage = string.Empty;
         StatusText = "応答を待っています…";
         _messages.Add(userDisplay);
         _messages.Add(assistant);
+        ConversationEdited();
         OnPropertyChanged(nameof(IsEmpty));
         InputText = string.Empty;
         PendingImage = null;
@@ -264,6 +280,8 @@ public sealed partial class ChatViewModel : ObservableObject, IDisposable
                 throw new ChatServiceException("回答本文を取得できませんでした。");
             _history.Add(user);
             _history.Add(assistant.Message);
+            userDisplay.IncludeInHistory();
+            assistant.IncludeInHistory();
             assistant.StatusText = "完了";
             StatusText = "送信できます。";
         }
@@ -289,6 +307,9 @@ public sealed partial class ChatViewModel : ObservableObject, IDisposable
         {
             _generation = null;
             IsSending = false;
+            ConversationEdited();
+            if (!_disposed) await AutoSaveCompletedTurnAsync();
+            _sendFinished?.TrySetResult(true);
         }
     }
 
@@ -333,6 +354,7 @@ public sealed partial class ChatViewModel : ObservableObject, IDisposable
         ErrorMessage = string.Empty;
         StatusText = "新しい会話を開始しました。";
         OnPropertyChanged(nameof(IsEmpty));
+        ResetConversationIdentity();
     }
 
     /// <summary>例外詳細を Trace へ記録し、利用者向けのエラーと状態を更新する。</summary>
@@ -340,6 +362,7 @@ public sealed partial class ChatViewModel : ObservableObject, IDisposable
     /// <param name="fallback">具体的な説明を公開できない例外の場合に表示する説明。</param>
     private void ReportFailure(Exception exception, string fallback)
     {
+        _diagnostics?.Error("chat.operation", exception);
         Trace.TraceError("Chat operation failed: {0}", exception);
         if (_disposed) return;
         ErrorMessage = exception is ChatServiceException ? exception.Message : fallback;
@@ -360,6 +383,7 @@ public sealed partial class ChatViewModel : ObservableObject, IDisposable
         RemoveImageCommand.NotifyCanExecuteChanged();
         LoadModelCommand.NotifyCanExecuteChanged();
         UnloadModelCommand.NotifyCanExecuteChanged();
+        NotifyConversationCommands();
     }
 
     /// <summary>モデル状態の購読を解除し、進行中処理と遅れて届く結果を無効にする。</summary>
