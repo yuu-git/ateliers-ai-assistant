@@ -16,16 +16,19 @@ public sealed class OllamaChatService : IChatService, IModelControlService
     private readonly HttpClient _client;
     private readonly TimeSpan _modelTimeout;
     private readonly TimeSpan _replyTimeout;
+    private readonly int _keepAliveSeconds;
 
     /// <summary>ホスト所有の HTTP クライアントと、一覧取得・回答全体の期限を受け取る。</summary>
     /// <param name="client">ホストが所有・破棄し、接続先を設定済みの HTTP クライアント。</param>
     /// <param name="modelTimeout">一覧取得の期限。省略時は10秒。</param>
     /// <param name="replyTimeout">回答全体とモデルのロード・停止要求の期限。省略時は10分。</param>
-    public OllamaChatService(HttpClient client, TimeSpan? modelTimeout = null, TimeSpan? replyTimeout = null)
+    /// <param name="keepAliveSeconds">ロード・生成後の保持秒数。UI の既定は無期限、Worker は300秒。</param>
+    public OllamaChatService(HttpClient client, TimeSpan? modelTimeout = null, TimeSpan? replyTimeout = null, int keepAliveSeconds = -1)
     {
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _modelTimeout = modelTimeout ?? TimeSpan.FromSeconds(10);
         _replyTimeout = replyTimeout ?? TimeSpan.FromMinutes(10);
+        _keepAliveSeconds = keepAliveSeconds;
     }
 
     /// <summary>api/tags から利用可能モデル名を取得し、重複排除と並べ替えを行う。</summary>
@@ -112,12 +115,12 @@ public sealed class OllamaChatService : IChatService, IModelControlService
         }
     }
 
-    /// <summary>空の messages と keep_alive=-1 で、指定モデルのロード保持を要求する。</summary>
+    /// <summary>空の messages と構成済み保持時間で、指定モデルのロード保持を要求する。</summary>
     /// <param name="model">操作または送信に使用するモデル名。</param>
     /// <param name="cancellationToken">処理の中止要求を受け取るトークン。</param>
     /// <returns>操作の完了を表すタスク。</returns>
     public Task LoadModelAsync(string model, CancellationToken cancellationToken = default) =>
-        SetModelLifetimeAsync(model, -1, cancellationToken);
+        SetModelLifetimeAsync(model, _keepAliveSeconds, cancellationToken);
 
     /// <summary>空の messages と keep_alive=0 で、指定モデルのアンロードを要求する。</summary>
     /// <param name="model">操作または送信に使用するモデル名。</param>
@@ -175,7 +178,7 @@ public sealed class OllamaChatService : IChatService, IModelControlService
                         ChatRole.User => "user",
                         ChatRole.Assistant => "assistant",
                         _ => throw new ArgumentOutOfRangeException(nameof(messages))
-                    }, message.Content, message.Image is null ? null : new[] { message.Image.Base64Data })).ToArray(), true), OllamaJsonContext.Default.OllamaChatRequest)
+                    }, message.Content, message.Image is null ? null : new[] { message.Image.Base64Data })).ToArray(), true, _keepAliveSeconds), OllamaJsonContext.Default.OllamaChatRequest)
         };
         using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead,
             cancellationToken).ConfigureAwait(false);

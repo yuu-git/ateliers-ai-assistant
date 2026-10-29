@@ -1,0 +1,29 @@
+<UserControl x:Class="Ateliers.Ai.Assistant.Desktop.Controls.WorkerConsoleView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:vm="using:Ateliers.Ai.Assistant.Desktop.ViewModels">
+ <ScrollViewer MaxHeight="600" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+  <StackPanel Spacing="10" MinWidth="280" MaxWidth="600">
+   <TextBlock Text="登録した情報源の設定を管理します。巡回は通知画面から実行できます。" TextWrapping="Wrap"/>
+   <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" Foreground="DarkRed"/>
+   <ListView ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource, Mode=TwoWay}" MaxHeight="140" AutomationProperties.AutomationId="WorkerSources">
+    <ListView.ItemTemplate><DataTemplate x:DataType="vm:WorkerSourceViewModel"><StackPanel Spacing="4" Padding="4"><TextBlock Text="{x:Bind Title, Mode=OneWay}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind Detail, Mode=OneWay}" TextWrapping="Wrap" FontSize="12"/></StackPanel></DataTemplate></ListView.ItemTemplate>
+   </ListView>
+   <Button Content="新しい情報源" Command="{Binding NewSourceCommand}"/>
+   <Expander x:Name="SourceEditor" Header="情報源を編集" IsExpanded="True" HorizontalAlignment="Stretch">
+    <StackPanel Spacing="10">
+     <TextBox x:Name="SourceName" Header="情報源名" Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MaxLength="120"/>
+     <TextBox x:Name="SourceUrl" Header="公開 RSS / Atom URL" Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MaxLength="4096"/>
+     <NumberBox x:Name="SourceInterval" Header="巡回周期（分・5〜10080、初期60分）" Value="{Binding IntervalMinutes, Mode=TwoWay}" Minimum="5" Maximum="10080" SpinButtonPlacementMode="Compact"/>
+     <CheckBox x:Name="SourceAutomatic" Content="この情報源の自動取得を有効にする" IsChecked="{Binding Automatic, Mode=TwoWay}"/>
+     <TextBlock Text="{Binding SourceEditState}" TextWrapping="Wrap"/>
+     <TextBlock Text="保存すると周期と次回予定へ反映します。AI 一時停止とは独立した設定です。" TextWrapping="Wrap" FontSize="12"/>
+     <Button Content="この情報源を保存" Command="{Binding SaveSourceCommand}"/>
+    </StackPanel>
+   </Expander>
+   <Button Content="選択した情報源を削除…" Command="{Binding DeleteSourceCommand}"/>
+   <Border x:Name="DeleteConfirmation" Visibility="Collapsed" BorderBrush="{ThemeResource SystemFillColorCautionBrush}" BorderThickness="1" Padding="12" CornerRadius="8">
+    <StackPanel Spacing="8"><TextBlock x:Name="DeleteQuestion" TextWrapping="Wrap"/><TextBlock Text="既存の記事・通知・Markdown・巡回履歴は残ります。巡回と待機記事の処理だけを停止します。" TextWrapping="Wrap"/><Button Content="情報源を削除する" Click="ConfirmClicked"/><Button Content="削除をキャンセル" Click="CancelClicked"/></StackPanel>
+   </Border>
+  </StackPanel>
+ </ScrollViewer>
+</UserControl>

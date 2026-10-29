@@ -1,0 +1,25 @@
+<UserControl x:Class="Ateliers.Ai.Assistant.Desktop.Controls.WorkerStatusView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <Grid Padding="4" SizeChanged="StatusSizeChanged">
+  <Button x:Name="StatusButton" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" ToolTipService.ToolTip="{Binding GlobalWorkerState}" AutomationProperties.Name="Worker と AI の状態・操作">
+   <StackPanel>
+    <StackPanel x:Name="ExpandedStatus" Spacing="4"><TextBlock Text="状態・操作" FontWeight="SemiBold"/><TextBlock Text="{Binding GlobalWorkerState}" TextWrapping="Wrap"/><TextBlock Text="{Binding GlobalAiState}" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"/></StackPanel>
+    <StackPanel x:Name="CompactStatus" Visibility="Collapsed"><TextBlock Text="{Binding CompactWorkerState}" FontSize="12"/><TextBlock Text="{Binding CompactAiState}" FontSize="10"/></StackPanel>
+    <TextBlock x:Name="EnvironmentText" FontSize="10" Opacity="0.7"/>
+   </StackPanel>
+   <Button.Flyout><Flyout Placement="Right" Opening="StatusFlyoutOpening">
+    <ScrollViewer MaxHeight="500" VerticalScrollBarVisibility="Auto"><StackPanel Width="280" Spacing="10">
+     <TextBlock Text="{Binding GlobalWorkerState}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+     <TextBlock Text="{Binding ConnectionText}" TextWrapping="Wrap"/>
+     <TextBlock Text="{Binding ErrorMessage}" Foreground="DarkRed" TextWrapping="Wrap"/>
+     <Button Content="Worker を開始" Command="{Binding StartCommand}"/>
+     <Button Content="Worker を停止…"><Button.Flyout><MenuFlyout Opening="StopMenuOpening"><MenuFlyoutItem x:Name="StopWorkerAction" Text="RSS・AI を停止する" Command="{Binding StopCommand}"/></MenuFlyout></Button.Flyout></Button>
+     <TextBlock Text="{Binding GlobalAiState}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+     <Button x:Name="PauseAiAction" Content="{Binding AiPauseActionText}" Command="{Binding ToggleAiPauseCommand}"/>
+     <TextBlock Text="Worker 停止は巡回・AI の両方を停止します。AI の一時停止は実行中の要約を中止しますが RSS は継続します。" TextWrapping="Wrap" FontSize="12"/>
+     <TextBlock Text="AI の即時操作は一時停止だけを保存します。編集中のモデル・ロード許可・情報源設定は保存しません。" TextWrapping="Wrap" FontSize="12"/>
+    </StackPanel></ScrollViewer>
+   </Flyout></Button.Flyout>
+  </Button>
+ </Grid>
+</UserControl>

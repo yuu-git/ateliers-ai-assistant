@@ -103,6 +103,7 @@ public sealed class SqliteConversationStore(IApplicationPaths paths, IAppDiagnos
                 if (!exists && _databaseSeen) throw new StorageException("使用中の会話 DB が削除・移動されています。現在の会話を維持しました。");
                 if (!create && !exists) return await operation(null).ConfigureAwait(false);
                 if (create) Directory.CreateDirectory(paths.DatabaseDirectory);
+                using var processLock = await AssistantDatabase.EnterProcessAsync(paths, token).ConfigureAwait(false);
                 var connection = new SqliteConnectionStringBuilder { DataSource = paths.DatabaseFile,
                     Mode = create ? SqliteOpenMode.ReadWriteCreate : SqliteOpenMode.ReadWrite, ForeignKeys = true, Pooling = false, DefaultTimeout = 3 };
                 await using var db = new AssistantDbContext(new DbContextOptionsBuilder<AssistantDbContext>().UseSqlite(connection.ToString()).Options);

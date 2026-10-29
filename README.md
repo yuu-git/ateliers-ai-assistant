@@ -1,4 +1,18 @@
-# Ateliers AI Assistant — Phase 3: Web 情報収集 MVP
+# Ateliers AI Assistant — Phase 4: 常駐・自動巡回
+
+UI 整理では、ナビゲーションを2分類し、「通知・情報収集」を閲覧中心の配置へ、設定を Worker／バックグラウンド AI／データと保存先のカードへ整理しました。情報源別表示は全体の最新100件が対象です。詳細と参考画像との差分は [UI 整理の実装状況](docs/ui-design/implementation-status.md) を参照してください。
+
+通知応答に取得元 `FeedSourceUrl` を追加し、UI / Worker の実装版を4.0.1にしています。更新前の Worker が動いている場合は旧アプリの設定画面で Worker を停止し、更新後のアプリから開始してください。DB の追加 Migration はありません。
+
+## 現在の実装（Phase 4）
+
+Web 情報収集を独立 Worker に移し、複数情報源、5〜10080分の周期編集（初期60分）と次回予定、自動巡回、永続 AI 待機、一時停止、モデル自動ロード・解放方針、アプリ内ログを追加しました。UI を閉じてもサインイン中の Worker は継続します。サインイン時の自動起動は設定画面から明示的に有効化してください。
+
+Desktop の出力・発行先には `Worker/` 一式が必要です。Worker は **ASP.NET Core Runtime 8（x64）** が必要です。Debug / Release のデータと起動登録は分離します。Worker の手動開始・明示停止は設定画面にあります。
+
+詳細な操作、API の安全対策、データ所有権、モデル共有、復旧と OS 上の確認手順は [Worker の実装・運用](docs/features/background-worker.md) を参照してください。文書サブモジュールの参照更新前は、文書リポジトリの同ファイルが原本です。以下の Phase 3 の説明は導入時の記録であり、通常起動の取得・削除は Worker API 経由です。AI の再試行は最新10件の範囲から外れた待機記事にも適用します。
+
+検証: Debug / Release 各62シナリオと、`tests/Verify-WorkerProcess.ps1`・`tests/Verify-WorkerDisplay.ps1` による隔離実プロセス・実 WinUI。実サインイン・スリープ復帰は利用者環境での最終確認を残します。
 
 ## Web 情報収集（Phase 3）
 
@@ -160,7 +174,24 @@ dotnet ef migrations add <MigrationName> --project src/Ateliers.Ai.Assistant.Inf
 
 手動確認では、未ロードのモデルを選んで起動し、「モデル管理」の表示と停止、モデル切替後の旧モデル停止・新モデル未ロード、チャット中の停止禁止、モデルがロード済みの状態でウィンドウを閉じた後の `/api/ps` を確認してください。
 
+## 通知管理の追加改修（Phase 4 後）
+
+通知を初回取得日でグループ化し、既読・ブックマーク・複数の手動タグを保存します。一覧の記事を明示的に開くと既読になり、初期選択・定期更新・ブックマーク・タグ操作だけでは既読になりません。記事詳細の「記事の操作」から未読戻し・タグ編集ができます。
+
+「すべて・タグなし」は全体最新100件内で情報源を絞り込み、未読／ブックマーク／タグ指定は DB 全通知へ条件を適用した最新100件を表示します。未読件数は全表示対象通知から集計します。要約待ちは含みません。削除済み情報源の記事は「すべて」から閲覧できます。
+
+ナビゲーション下部に Worker／AI の実状態・環境を表示し、設定と同じコマンドで開始・停止・AI の即時一時停止ができます。AI 即時操作は他の未保存設定を保存せず RSS を継続します。
+
+Worker 実装版は **4.1.0**。更新前に旧アプリで Worker を停止し、更新後に開始し直してください。Migration `NotificationReadingAndTags` は既存通知を未読・ブックマーク OFF・タグなしで移行し、記事・要約・初回取得日時は維持します。利用者 DB を初期化しません。詳しい API、変更ファイル、移行・検証結果はドキュメントリポジトリの `features/notification-management-implementation-status.md` を参照してください。
+
+```powershell
+pwsh -File tests/Verify-WorkerDisplay.ps1 -Notifications
+pwsh -File tests/Verify-UiRefactoring.ps1
+```
+
 ## ビルドとテスト
+
+通知一覧には ☆／★ とゴミ箱の独立ボタンがあります。単体削除は既定で確認し、「次回以降は確認しない」は削除成功後にだけ既存の Roaming `settings.json` へ保存します。設定の「データと保存先」から確認を再有効化できます。一括削除は常に従来の確認画面を使います。未読表示は一覧の補助情報行末尾にまとめました。DB Migration・Worker API の追加はありません。変更ファイル・確認結果はドキュメントリポジトリの `features/notification-quick-actions-implementation-status.md` を参照してください。
 
 画像貼り付けの追加で新しい NuGet パッケージやプロジェクトは追加していません。クリップボード・縮小・プレビューには Windows の標準 API を利用しています。
 

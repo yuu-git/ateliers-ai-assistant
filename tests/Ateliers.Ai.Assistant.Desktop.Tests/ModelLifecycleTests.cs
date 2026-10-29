@@ -28,7 +28,7 @@ internal static class ModelLifecycleTests
             Assert.That(request.RequestUri!.AbsolutePath == "/api/chat", "操作も POST /api/chat");
             using var document = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(token));
             requests.Add(document.RootElement.Clone());
-            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"done\":true}", Encoding.UTF8, "application/json") };
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"done\":true,\"message\":{\"content\":\"test\"}}", Encoding.UTF8, "application/json") };
         })) { BaseAddress = new Uri("http://localhost:11434/") };
         var service = new OllamaChatService(client);
         var models = await service.GetLoadedModelsAsync();
@@ -42,6 +42,11 @@ internal static class ModelLifecycleTests
             requests[1].GetProperty("keep_alive").GetInt32() == 0, "起動 -1 / 停止 0");
         Assert.That(requests.All(request => request.GetProperty("messages").GetArrayLength() == 0 &&
             !request.GetProperty("stream").GetBoolean()), "空 messages の非ストリーム操作");
+        var worker = new OllamaChatService(client, keepAliveSeconds: 300);
+        await worker.LoadModelAsync("test");
+        await foreach (var _ in worker.StreamReplyAsync("test", [new ChatMessage(ChatRole.User, "test")])) { }
+        Assert.That(requests[2].GetProperty("keep_alive").GetInt32() == 300 &&
+            requests[3].GetProperty("keep_alive").GetInt32() == 300, "Worker のロード・生成は同じ有限の保持時間");
     }
 
     public static async Task OwnershipAndManualStop()

@@ -4,7 +4,9 @@ namespace Ateliers.Ai.Assistant.Application.Settings;
 /// <param name="LastSelectedModel">最後に選択したモデル名。自動ロードは指示しない。</param>
 /// <param name="WebFeedUrl">手動取得する1件の RSS / Atom URL。</param>
 /// <param name="WebSummaryModel">チャットと独立した要約モデル選択。復元時に自動ロードしない。</param>
-public sealed record UserSettings(string? LastSelectedModel = null, string? WebFeedUrl = null, string? WebSummaryModel = null);
+/// <param name="ConfirmSingleArticleDeletion">記事の単体削除前に確認する。旧設定でも既定は true。一括削除には影響しない。</param>
+public sealed record UserSettings(string? LastSelectedModel = null, string? WebFeedUrl = null, string? WebSummaryModel = null,
+    bool ConfirmSingleArticleDeletion = true);
 
 /// <summary>固定された Roaming 保存先でユーザー設定を読み書きする契約。</summary>
 public interface IUserSettingsStore

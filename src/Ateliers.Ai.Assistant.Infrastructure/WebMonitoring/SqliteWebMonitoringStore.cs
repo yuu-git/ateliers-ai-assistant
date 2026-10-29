@@ -10,7 +10,7 @@ using Microsoft.EntityFrameworkCore;
 namespace Ateliers.Ai.Assistant.Infrastructure.WebMonitoring;
 
 /// <summary>既存 DB に Migration で追加する記事・実行履歴・通知。同期 SQLite I/O は背景スレッドで実行する。</summary>
-public sealed class SqliteWebMonitoringStore(IApplicationPaths paths, IAppDiagnostics diagnostics) : IWebMonitoringStore
+public sealed partial class SqliteWebMonitoringStore(IApplicationPaths paths, IAppDiagnostics diagnostics) : IWebMonitoringStore
 {
     private readonly SemaphoreSlim _gate = AssistantDatabase.Gate(paths);
     private bool _databaseSeen;
@@ -76,7 +76,7 @@ public sealed class SqliteWebMonitoringStore(IApplicationPaths paths, IAppDiagno
             throw new StorageException("記事の保存結果が不正です。");
         await using var transaction = await db!.Database.BeginTransactionAsync(token).ConfigureAwait(false);
         var row = await db.Set<ArticleRow>().SingleAsync(row => row.Id == article.Id, token).ConfigureAwait(false);
-        row.MarkdownPath = article.MarkdownPath; row.Notified = true; row.Error = null;
+        row.MarkdownPath = article.MarkdownPath; row.Notified = true; row.Error = null; row.Processing = false; row.RetryAfterTicks = null;
         if (!await db.Set<NotificationRow>().AnyAsync(notification => notification.ArticleId == article.Id, token).ConfigureAwait(false))
             db.Add(new NotificationRow { ArticleId = article.Id, CreatedTicks = DateTimeOffset.UtcNow.UtcTicks });
         await db.SaveChangesAsync(token).ConfigureAwait(false);
@@ -106,15 +106,17 @@ public sealed class SqliteWebMonitoringStore(IApplicationPaths paths, IAppDiagno
             .ToDictionaryAsync(row => row.Id, token).ConfigureAwait(false);
         return order.Select(row =>
         {
-            var article = ToArticle(articles[row.ArticleId]);
+            var stored = articles[row.ArticleId];
+            var article = ToArticle(stored);
             return new ArticleNotification(new NotificationDto(article.Id, new DateTimeOffset(row.CreatedTicks, TimeSpan.Zero),
-                NotificationKind.Information, article.Article.Title, article.Summary ?? ""), article.Article.Url, article.MarkdownPath!, article.Article.PublishedAt, article.Model);
+                NotificationKind.Information, article.Article.Title, article.Summary ?? ""), article.Article.Url, article.MarkdownPath!, article.Article.PublishedAt, article.Model, stored.Source);
         }).ToArray();
     }, false, token);
     /// <summary>段階を保ったまま、API 非依存の再試行スナップショットを復元する。</summary>
     private static CollectedArticle ToArticle(ArticleRow row) => new(row.Id,
         JsonSerializer.Deserialize(row.Payload, WebJsonContext.Default.FeedArticle)!, new DateTimeOffset(row.FetchedTicks, TimeSpan.Zero),
-        row.Summary, row.Model, row.MarkdownPath, row.Notified, row.Error);
+        row.Summary, row.Model, row.MarkdownPath, row.Notified, row.Error, row.Processing,
+        row.RetryAfterTicks is { } retry ? new DateTimeOffset(retry, TimeSpan.Zero) : null);
     /// <summary>会話ストアと同じ DB の排他権を使い、欠損・破損時に初期化し直さない。</summary>
     private async Task<T> Execute<T>(Func<AssistantDbContext?, Task<T>> work, bool create, CancellationToken token)
     {
@@ -130,6 +132,7 @@ public sealed class SqliteWebMonitoringStore(IApplicationPaths paths, IAppDiagno
                 if (!exists && _databaseSeen) throw new StorageException("使用中の DB が削除・移動されています。アプリを再起動して保存先を確認してください。");
                 if (!exists && !create) return await work(null).ConfigureAwait(false);
                 if (create) Directory.CreateDirectory(paths.DatabaseDirectory);
+                using var processLock = await AssistantDatabase.EnterProcessAsync(paths, token).ConfigureAwait(false);
                 var connection = new SqliteConnectionStringBuilder { DataSource = paths.DatabaseFile, ForeignKeys = true,
                     Mode = create ? SqliteOpenMode.ReadWriteCreate : SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 3 };
                 await using var db = new AssistantDbContext(new DbContextOptionsBuilder<AssistantDbContext>().UseSqlite(connection.ToString()).Options);
@@ -142,7 +145,7 @@ public sealed class SqliteWebMonitoringStore(IApplicationPaths paths, IAppDiagno
         catch (Exception exception)
         {
             diagnostics.Error("web.storage", exception);
-            if (exception is StorageException) throw;
+            if (exception is StorageException or WebMonitoringException) throw;
             throw new StorageException("Web 収集データを読み書きできませんでした。DB の状態・アクセス権・空き容量を確認してください。", exception);
         }
         finally { _gate.Release(); }

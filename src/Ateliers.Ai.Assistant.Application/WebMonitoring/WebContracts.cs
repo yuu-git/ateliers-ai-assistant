@@ -8,14 +8,32 @@ public sealed record FeedArticle(string Key, string Source, string? ExternalId, 
     DateTimeOffset? PublishedAt, string Content, string InputScope);
 /// <summary>再試行に必要な原文と、各段階の確定結果。</summary>
 public sealed record CollectedArticle(Guid Id, FeedArticle Article, DateTimeOffset FetchedAt,
-    string? Summary = null, string? Model = null, string? MarkdownPath = null, bool Notified = false, string? Error = null);
+    string? Summary = null, string? Model = null, string? MarkdownPath = null, bool Notified = false, string? Error = null,
+    bool Processing = false, DateTimeOffset? RetryAfter = null);
+/// <summary>UI の履歴表示だけに必要な読取契約。</summary>
+public interface IWebMonitoringReader
+{
+    /// <summary>最新の巡回履歴。</summary>
+    Task<IReadOnlyList<CollectionRun>> RunsAsync(CancellationToken token);
+    /// <summary>最新の通知。</summary>
+    Task<IReadOnlyList<ArticleNotification>> NotificationsAsync(CancellationToken token);
+}
+/// <summary>収集開始と削除の UI 用契約。Worker クライアントへ差し替えられる。</summary>
+public interface IWebCollectionOperations
+{
+    /// <summary>1件の情報源の取得を要求する。</summary>
+    Task CollectAsync(string url, string? model, IProgress<string>? progress, CancellationToken token);
+    /// <summary>選択した記事を削除する。</summary>
+    Task<ArticleDeletionResult> DeleteAsync(IReadOnlyList<Guid> ids, CancellationToken token);
+}
 /// <summary>巡回の開始・終了と、今回の処理件数。</summary>
 public sealed record CollectionRun(Guid Id, DateTimeOffset StartedAt, DateTimeOffset? FinishedAt = null,
     string Status = "実行中", int Fetched = 0, int New = 0, int Duplicates = 0, int Summarized = 0,
     int Failed = 0, string Error = "", string Source = "", string? Model = null);
-/// <summary>共通通知と、記事・成果物の参照先、実際に要約したモデルの記録。</summary>
+/// <summary>共通通知と参照先。SourceUrl は記事 URL、FeedSourceUrl は保存済みの取得元フィード URL。</summary>
 public sealed record ArticleNotification(NotificationDto Notification, string? SourceUrl, string MarkdownPath,
-    DateTimeOffset? PublishedAt = null, string? SummaryModel = null);
+    DateTimeOffset? PublishedAt = null, string? SummaryModel = null, string? FeedSourceUrl = null,
+    DateTimeOffset? FetchedAt = null, DateTimeOffset? ReadAt = null, bool IsBookmarked = false, IReadOnlyList<ArticleTag>? Tags = null);
 /// <summary>一括削除の結果。失敗・中止した対象は残し、成功した対象だけを削除済みとして扱う。</summary>
 public sealed record ArticleDeletionResult(IReadOnlyList<Guid> DeletedIds, IReadOnlyList<Guid> FailedIds, bool Canceled, string Error);
 /// <summary>安全なフィード HTTP 取得と RSS / Atom 解析の境界。</summary>
@@ -25,7 +43,7 @@ public interface IFeedSource
     Task<IReadOnlyList<FeedArticle>> FetchAsync(string url, CancellationToken cancellationToken);
 }
 /// <summary>収集状態、巡回履歴、通知の永続化境界。</summary>
-public interface IWebMonitoringStore
+public interface IWebMonitoringStore : IWebMonitoringReader
 {
     /// <summary>巡回履歴を登録または更新する。</summary>
     Task SaveRunAsync(CollectionRun run, CancellationToken token);
@@ -38,9 +56,9 @@ public interface IWebMonitoringStore
     /// <summary>ファイル保存の確定と通知1件の作成を同じトランザクションで行う。</summary>
     Task CompleteAsync(CollectedArticle article, CancellationToken token);
     /// <summary>最新の巡回履歴を取得する。中断された実行も表示する。</summary>
-    Task<IReadOnlyList<CollectionRun>> RunsAsync(CancellationToken token);
+    new Task<IReadOnlyList<CollectionRun>> RunsAsync(CancellationToken token);
     /// <summary>最新の永続通知を取得する。</summary>
-    Task<IReadOnlyList<ArticleNotification>> NotificationsAsync(CancellationToken token);
+    new Task<IReadOnlyList<ArticleNotification>> NotificationsAsync(CancellationToken token);
     /// <summary>記事・通知・固定パスの Markdown を削除する。重複判定キーも失われ、次回は新規登録できる。</summary>
     Task DeleteArticleAsync(Guid id, CancellationToken token);
 }

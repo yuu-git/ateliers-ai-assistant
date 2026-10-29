@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Ateliers.Ai.Assistant.Application.Settings;
 using Ateliers.Ai.Assistant.Application.Storage;
+using Ateliers.Ai.Assistant.Application.Logging;
 
 namespace Ateliers.Ai.Assistant.Desktop.ViewModels;
 
@@ -19,6 +20,43 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string _error = "";
     private Task _pendingSave = Task.CompletedTask;
     private UserSettings _current = new();
+    private bool _savingDeletionPreference;
+    /// <summary>保存成功した単体削除の確認方針。初期値は確認あり。</summary>
+    public bool ConfirmSingleArticleDeletion
+    {
+        get => _current.ConfirmSingleArticleDeletion;
+        set { if (value != ConfirmSingleArticleDeletion) _ = SetDeletionConfirmationAsync(value); }
+    }
+    /// <summary>設定を読めない場合や保存中は確認設定を変更しない。</summary>
+    public bool CanChangeDeletionConfirmation => _readable && !IsApplyingSettings && !_savingDeletionPreference;
+    /// <summary>他設定と同じキューで保存し、成功後にだけ確認方針を変更する。</summary>
+    public Task<bool> SetDeletionConfirmationAsync(bool confirm)
+    {
+        if (!CanChangeDeletionConfirmation) { NotifyDeletionPreference(); return Task.FromResult(false); }
+        _savingDeletionPreference = true;
+        NotifyDeletionPreference();
+        var save = SaveDeletionConfirmationAsync(confirm, ++_request, _pendingSave);
+        _pendingSave = save;
+        return save;
+    }
+    /// <summary>先行保存の後に最新設定へ確認方針を合成し、保存成功時にだけ確定する。</summary>
+    private async Task<bool> SaveDeletionConfirmationAsync(bool confirm, long request, Task previous)
+    {
+        try
+        {
+            await previous;
+            await _store.SaveAsync(_current with { ConfirmSingleArticleDeletion = confirm });
+            _current = _current with { ConfirmSingleArticleDeletion = confirm };
+            if (request == _request) ErrorMessage = "";
+            (_diagnostics as IAppLog)?.Write(AppLogCategory.Application, AppLogLevel.Information, "settings.article-deletion", confirm ? "記事の単体削除確認を有効化しました。" : "記事の単体削除確認を無効化しました。");
+            return true;
+        }
+        catch (Exception exception) { if (request == _request) Failure("settings.article-deletion", exception); return false; }
+        finally { _savingDeletionPreference = false; NotifyDeletionPreference(); }
+    }
+    /// <summary>非同期保存の成功・失敗を設定コントロールへ再通知する。</summary>
+    private void NotifyDeletionPreference()
+    { OnPropertyChanged(nameof(ConfirmSingleArticleDeletion)); OnPropertyChanged(nameof(CanChangeDeletionConfirmation)); }
     /// <summary>再読み込みした Web 設定を画面に適用する。モデルのロードは行わない。</summary>
     public Action<string?, string?>? ApplyWebSettings { get; set; }
     /// <summary>パス、設定ストア、固定フォルダーを開く処理をホストから受け取る。</summary>
@@ -68,7 +106,7 @@ public sealed partial class SettingsViewModel : ObservableObject
             ApplyWebSettings?.Invoke(settings.WebFeedUrl, settings.WebSummaryModel);
         }
         catch (Exception exception) { _readable = false; Failure("settings.initialize", exception); }
-        finally { IsApplyingSettings = false; }
+        finally { IsApplyingSettings = false; NotifyDeletionPreference(); }
     }
     /// <summary>最後の明示選択を保存する。読込失敗中は既存の不正ファイルを保護する。</summary>
     public Task RememberModelAsync(string? model)
@@ -92,7 +130,7 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// <summary>設定を書き込み、古い保存の完了で新しいエラー表示を上書きしない。</summary>
     private async Task<bool> SaveSettingsAsync(UserSettings settings, long request, Task previous)
     {
-        try { await previous; await _store.SaveAsync(settings); if (request == _request) ErrorMessage = ""; return true; }
+        try { await previous; await _store.SaveAsync(settings with { ConfirmSingleArticleDeletion = _current.ConfirmSingleArticleDeletion }); if (request == _request) ErrorMessage = ""; return true; }
         catch (Exception exception) { if (request == _request) Failure("settings.save", exception); return false; }
     }
     /// <summary>内部固定フォルダーの起動失敗を通知する。</summary>

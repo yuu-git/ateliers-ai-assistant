@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using Ateliers.Ai.Assistant.Application.Chat;
 using Ateliers.Ai.Assistant.Core.Chat;
 using Ateliers.Ai.Assistant.Application.WebMonitoring;
+using Ateliers.Ai.Assistant.Application.Worker;
 
 namespace Ateliers.Ai.Assistant.Application.Models;
 
@@ -14,6 +15,7 @@ public sealed class ChatModelSession : IChatService, IModelLifecycleService, IMo
 {
     private readonly IChatService _chat;
     private readonly IModelControlService _control;
+    private readonly IModelUseGate? _processGate;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly CancellationTokenSource _operations = new();
     private readonly HashSet<string> _managed = new(StringComparer.Ordinal);
@@ -27,10 +29,12 @@ public sealed class ChatModelSession : IChatService, IModelLifecycleService, IMo
     /// <summary>チャット通信とモデル操作の実装を受け取り、Desktop 内の共通排他セッションを構成する。</summary>
     /// <param name="chat">回答生成と利用可能モデルの一覧取得を行うサービス。</param>
     /// <param name="control">モデルのロード・停止とサーバー全体の状態取得を行うサービス。</param>
-    public ChatModelSession(IChatService chat, IModelControlService control)
+    /// <param name="processGate">同じユーザーの Worker と調整する排他権。単体テストでは省略できる。</param>
+    public ChatModelSession(IChatService chat, IModelControlService control, IModelUseGate? processGate = null)
     {
         _chat = chat;
         _control = control;
+        _processGate = processGate;
     }
 
     /// <summary>モデル状態または操作状態が変わったときに発生する。</summary>
@@ -233,9 +237,22 @@ public sealed class ChatModelSession : IChatService, IModelLifecycleService, IMo
         if (!await _gate.WaitAsync(0, token).ConfigureAwait(false))
             throw new ChatServiceException("チャット・Web 収集・モデル操作の完了を待ってください。");
         if (_closing) { _gate.Release(); throw new OperationCanceledException(token); }
+        IDisposable? processLease = null;
+        if (_processGate is not null)
+        {
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+            deadline.CancelAfter(TimeSpan.FromMilliseconds(500));
+            try { processLease = await _processGate.EnterAsync(deadline.Token).ConfigureAwait(false); }
+            catch (Exception exception)
+            {
+                _gate.Release();
+                if (token.IsCancellationRequested) throw;
+                throw new ChatServiceException("バックグラウンド AI がモデルを使用中です。設定で一時停止してから再試行してください。", exception);
+            }
+        }
         _busy = true;
         Changed?.Invoke(this, EventArgs.Empty);
-        return new Operation(this);
+        return new Operation(this, processLease);
     }
 
     /// <summary>終了処理を一度だけ開始し、同じ完了タスクを返す。</summary>
@@ -261,6 +278,7 @@ public sealed class ChatModelSession : IChatService, IModelLifecycleService, IMo
         {
             await _gate.WaitAsync(deadline.Token).ConfigureAwait(false);
             acquired = true;
+            using var processLease = _processGate is null ? null : await _processGate.EnterAsync(deadline.Token).ConfigureAwait(false);
             _busy = true;
             // 管理対象だけを処理する。失敗したモデルがあっても次の対象を試す。
             foreach (var model in ManagedModels)
@@ -286,11 +304,13 @@ public sealed class ChatModelSession : IChatService, IModelLifecycleService, IMo
 
     /// <summary>処理終了時にセッションの排他権と実行中状態を解放するハンドル。</summary>
     /// <param name="owner">排他実行状態を管理するセッション。</param>
-    private sealed class Operation(ChatModelSession owner) : IDisposable
+    /// <param name="processLease">プロセス間のモデル使用権。取得していなければ null。</param>
+    private sealed class Operation(ChatModelSession owner, IDisposable? processLease) : IDisposable
     {
         /// <summary>排他権を解放し、操作可能になったことを通知する。</summary>
         public void Dispose()
         {
+            processLease?.Dispose();
             owner._busy = false;
             owner._gate.Release();
             owner.Changed?.Invoke(owner, EventArgs.Empty);

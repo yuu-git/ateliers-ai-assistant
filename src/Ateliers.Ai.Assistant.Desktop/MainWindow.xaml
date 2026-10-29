@@ -8,24 +8,30 @@
     Title="Ateliers AI Assistant">
     <Grid DataContext="{x:Bind ViewModel}" Loaded="Root_Loaded">
         <NavigationView x:Name="MainNavigation"
-                        PaneDisplayMode="Left" OpenPaneLength="220"
+                        PaneDisplayMode="Auto" OpenPaneLength="220"
                         IsBackButtonVisible="Collapsed" IsSettingsVisible="False" SelectionChanged="Navigation_SelectionChanged">
             <NavigationView.MenuItems>
+                <NavigationViewItemHeader Content="機能" />
+                <NavigationViewItem x:Name="WebNavigationItem" Content="通知・情報収集" Tag="Web">
+                    <NavigationViewItem.Icon><SymbolIcon Symbol="World" /></NavigationViewItem.Icon>
+                    <NavigationViewItem.InfoBadge><InfoBadge x:Name="UnreadBadge" Visibility="Collapsed" Value="{x:Bind WebViewModel.TotalUnread, Mode=OneWay}"/></NavigationViewItem.InfoBadge>
+                </NavigationViewItem>
                 <NavigationViewItem x:Name="ChatNavigationItem" Content="AI チャット" Tag="Chat" IsSelected="True">
                     <NavigationViewItem.Icon>
                         <SymbolIcon Symbol="Message" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItemSeparator />
+                <NavigationViewItemHeader Content="システム・管理" />
                 <NavigationViewItem Content="モデル管理" Tag="Models">
                     <NavigationViewItem.Icon><SymbolIcon Symbol="Library" /></NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem x:Name="LogsNavigationItem" Content="ログ" Tag="Logs"><NavigationViewItem.Icon><SymbolIcon Symbol="Document" /></NavigationViewItem.Icon></NavigationViewItem>
                 <NavigationViewItem Content="設定" Tag="Settings">
                     <NavigationViewItem.Icon><SymbolIcon Symbol="Setting" /></NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem x:Name="WebNavigationItem" Content="Web 情報収集" Tag="Web">
-                    <NavigationViewItem.Icon><SymbolIcon Symbol="World" /></NavigationViewItem.Icon>
-                </NavigationViewItem>
             </NavigationView.MenuItems>
+            <NavigationView.PaneFooter><controls:WorkerStatusView x:Name="GlobalWorkerStatus" Visibility="Collapsed"/></NavigationView.PaneFooter>
             <Grid x:Name="ContentRoot">
             <Grid x:Name="ChatPanel" Padding="24" RowSpacing="16">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="210" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -187,22 +193,25 @@
                     </ListView.ItemTemplate>
                 </ListView>
             </Grid>
-            <Grid x:Name="WebPanel" Visibility="Collapsed" Padding="24" RowSpacing="12" DataContext="{x:Bind WebViewModel}">
+            <Grid x:Name="WebPanel" Visibility="Collapsed">
+                <controls:WebMonitoringView x:Name="ModernWeb" Visibility="Collapsed" />
+            <Grid x:Name="LegacyWebPanel" Padding="24" RowSpacing="12" DataContext="{x:Bind WebViewModel}">
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
-                <StackPanel Spacing="8">
+                <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto"><controls:WorkerConsoleView x:Name="WorkerConsole" Visibility="Collapsed" /></ScrollViewer>
+                <StackPanel x:Name="LegacyWebSettings" Spacing="8">
                     <TextBlock Text="Web 情報収集" FontSize="28" FontWeight="SemiBold" />
                     <TextBlock Text="RSS / Atom 1件から公開日時の新しい10記事を手動取得します。リンク先の全文は取得しません。収集中はチャット・モデル操作と排他制御します。" TextWrapping="Wrap" />
                     <TextBox x:Name="WebFeedUrlInput" Header="フィード URL（公開 HTTP / HTTPS）" Text="{Binding FeedUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MaxLength="4096" IsEnabled="{x:Bind WebViewModel.CanEdit, Mode=OneWay}" AutomationProperties.AutomationId="WebFeedUrl" />
                     <ComboBox x:Name="WebModelInput" Header="要約モデル（選択だけではロードしません）" ItemsSource="{x:Bind WebViewModel.Models}" SelectedItem="{Binding SelectedModel, Mode=TwoWay}" IsEnabled="{x:Bind WebViewModel.CanEdit, Mode=OneWay}" HorizontalAlignment="Stretch" AutomationProperties.AutomationId="WebSummaryModel" />
                 </StackPanel>
-                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12">
+                <StackPanel x:Name="LegacyWebCommands" Grid.Row="1" Orientation="Horizontal" Spacing="12">
                     <Button Content="取得" Command="{x:Bind WebViewModel.FetchCommand}" AutomationProperties.AutomationId="WebFetch" />
                     <Button Content="中止" Command="{x:Bind WebViewModel.CancelCommand}" />
                     <Button Content="設定を保存" Command="{x:Bind WebViewModel.SaveSettingsCommand}" />
                     <Button Content="一覧を更新" Command="{x:Bind WebViewModel.RefreshCommand}" />
                     <ProgressRing IsActive="{x:Bind WebViewModel.IsRunning, Mode=OneWay}" Width="24" Height="24" />
                 </StackPanel>
-                <TextBlock Grid.Row="2" Text="{x:Bind WebViewModel.StateText, Mode=OneWay}" TextWrapping="Wrap" />
+                <TextBlock x:Name="LegacyWebState" Grid.Row="2" Text="{x:Bind WebViewModel.StateText, Mode=OneWay}" TextWrapping="Wrap" />
                 <InfoBar Grid.Row="3" IsOpen="{x:Bind WebViewModel.HasError, Mode=OneWay}" Message="{x:Bind WebViewModel.ErrorMessage, Mode=OneWay}" Severity="Error" IsClosable="False" />
                 <Grid Grid.Row="4" ColumnSpacing="20">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
@@ -238,26 +247,31 @@
                     </Grid>
                 </Grid>
             </Grid>
-            <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed" Padding="24" DataContext="{x:Bind SettingsViewModel}">
-                <StackPanel Spacing="16" MaxWidth="900" HorizontalAlignment="Left">
+            </Grid>
+            <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed" Padding="24" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch" DataContext="{x:Bind SettingsViewModel}">
+                <StackPanel Spacing="20" MaxWidth="900" HorizontalAlignment="Stretch">
                     <TextBlock Text="設定" FontSize="28" FontWeight="SemiBold" />
-                    <TextBlock Text="データ保存先" FontSize="20" FontWeight="SemiBold" />
-                    <TextBlock Text="{x:Bind SettingsViewModel.DataEnvironmentText}" FontWeight="SemiBold" AutomationProperties.AutomationId="DataEnvironment" />
-                    <TextBlock Text="保存先は固定です。パスは選択してコピーできます。「開く」は対象フォルダーのみ必要に応じて作成します。" TextWrapping="Wrap" />
-                    <InfoBar Severity="Error" IsClosable="False" IsOpen="{x:Bind SettingsViewModel.HasError, Mode=OneWay}"
-                             Message="{x:Bind SettingsViewModel.ErrorMessage, Mode=OneWay}" />
-                    <TextBox Header="設定データ（Roaming）" IsReadOnly="True" Text="{x:Bind SettingsViewModel.Paths.SettingsDirectory}" />
-                    <Button Content="設定フォルダーを開く" Command="{x:Bind SettingsViewModel.OpenSettingsCommand}" />
-                    <TextBox Header="アプリデータ（Local）" IsReadOnly="True" Text="{x:Bind SettingsViewModel.Paths.LocalDirectory}" />
-                    <Button Content="アプリデータを開く" Command="{x:Bind SettingsViewModel.OpenLocalCommand}" />
-                    <TextBox Header="会話履歴 DB の格納フォルダー" IsReadOnly="True" Text="{x:Bind SettingsViewModel.Paths.DatabaseDirectory}" />
-                    <Button Content="DB フォルダーを開く" Command="{x:Bind SettingsViewModel.OpenDatabaseCommand}" />
-                    <TextBox Header="ログ" IsReadOnly="True" Text="{x:Bind SettingsViewModel.Paths.LogsDirectory}" />
-                    <Button Content="ログフォルダーを開く" Command="{x:Bind SettingsViewModel.OpenLogsCommand}" />
-                    <TextBlock Text="チャットの最終選択モデル、Web フィード URL と要約モデルを設定へ保存します。起動時は選択を復元し、自動ロード・自動収集はしません。" TextWrapping="Wrap" />
-                    <Button Content="設定を再読み込み" Command="{x:Bind SettingsViewModel.ReloadCommand}" />
+                    <controls:WorkerOptionsView x:Name="WorkerOptions" Visibility="Collapsed" />
+                    <controls:DataStorageView x:Name="DataStorage" />
                 </StackPanel>
             </ScrollViewer>
+            <Grid x:Name="LogsPanel" Visibility="Collapsed" Padding="24" RowSpacing="12" DataContext="{x:Bind LogsViewModel}">
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="160" /></Grid.RowDefinitions>
+                <StackPanel Spacing="6"><TextBlock Text="ログ" FontSize="28" FontWeight="SemiBold" /><TextBlock Text="本アプリの運転記録と技術診断です（Windows イベントログではありません）。日時は端末のローカル時刻と UTC オフセットです。Worker 停止中も閲覧できます。" TextWrapping="Wrap" /></StackPanel>
+                <VariableSizedWrapGrid Grid.Row="1" Orientation="Horizontal" MaximumRowsOrColumns="4" ItemWidth="180" ItemHeight="76">
+                    <ComboBox Header="分類" SelectedIndex="{Binding CategoryIndex, Mode=TwoWay}"><ComboBoxItem Content="アプリケーションログ" /><ComboBoxItem Content="システムログ" /></ComboBox>
+                    <ComboBox Header="レベル" SelectedIndex="{Binding LevelIndex, Mode=TwoWay}"><ComboBoxItem Content="すべて" /><ComboBoxItem Content="警告以上" /><ComboBoxItem Content="エラー" /></ComboBox>
+                    <ComboBox Header="期間" SelectedIndex="{Binding PeriodIndex, Mode=TwoWay}"><ComboBoxItem Content="1時間" /><ComboBoxItem Content="24時間" /><ComboBoxItem Content="7日" /><ComboBoxItem Content="保存範囲すべて" /></ComboBox>
+                    <TextBox Header="キーワード" Width="168" MaxLength="256" Text="{Binding Keyword, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                </VariableSizedWrapGrid>
+                <StackPanel Grid.Row="2" Spacing="6"><VariableSizedWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="5" ItemWidth="160" ItemHeight="40">
+                    <Button Content="ログを更新" Command="{Binding RefreshCommand}" /><Button Content="選択行をコピー" Command="{Binding CopySelectedCommand}" /><Button Content="表示中をコピー" Command="{Binding CopyVisibleCommand}" /><Button Content="詳細をコピー" Command="{Binding CopyDetailsCommand}" /><Button Content="ログフォルダーを開く" Command="{Binding OpenFolderCommand}" />
+                </VariableSizedWrapGrid><TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" Foreground="DarkRed" /></StackPanel>
+                <ListView x:Name="LogList" Grid.Row="3" ItemsSource="{Binding Entries}" SelectionMode="Multiple" SelectionChanged="LogsSelectionChanged" AutomationProperties.AutomationId="LogEntries">
+                    <ListView.ItemTemplate><DataTemplate x:DataType="vm:LogEntryViewModel"><TextBlock Text="{x:Bind Text}" TextWrapping="Wrap" Padding="4" /></DataTemplate></ListView.ItemTemplate>
+                </ListView>
+                <TextBox x:Name="LogDetails" Grid.Row="4" Header="選択したログの詳細（最大500行の表示）" Text="{Binding DetailText}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap" />
+            </Grid>
             </Grid>
         </NavigationView>
     </Grid>

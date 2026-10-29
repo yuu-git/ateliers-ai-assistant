@@ -138,6 +138,9 @@ namespace Ateliers.Ai.Assistant.Infrastructure.Conversations.Migrations
                     b.Property<long>("FetchedTicks")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("IsBookmarked")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Key")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -155,6 +158,15 @@ namespace Ateliers.Ai.Assistant.Infrastructure.Conversations.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("Processing")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("ReadAtTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("RetryAfterTicks")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Source")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -164,12 +176,35 @@ namespace Ateliers.Ai.Assistant.Infrastructure.Conversations.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("FetchedTicks");
+
                     b.HasIndex("Key")
                         .IsUnique();
+
+                    b.HasIndex("IsBookmarked", "FetchedTicks");
+
+                    b.HasIndex("ReadAtTicks", "FetchedTicks");
+
+                    b.HasIndex("Source", "FetchedTicks");
 
                     b.HasIndex("Source", "Notified");
 
                     b.ToTable("WebArticles", (string)null);
+                });
+
+            modelBuilder.Entity("Ateliers.Ai.Assistant.Infrastructure.WebMonitoring.ArticleTagRow", b =>
+                {
+                    b.Property<Guid>("ArticleId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TagId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("ArticleId", "TagId");
+
+                    b.HasIndex("TagId", "ArticleId");
+
+                    b.ToTable("WebArticleTags", (string)null);
                 });
 
             modelBuilder.Entity("Ateliers.Ai.Assistant.Infrastructure.WebMonitoring.NotificationRow", b =>
@@ -207,6 +242,45 @@ namespace Ateliers.Ai.Assistant.Infrastructure.Conversations.Migrations
                     b.ToTable("WebCollectionRuns", (string)null);
                 });
 
+            modelBuilder.Entity("Ateliers.Ai.Assistant.Infrastructure.WebMonitoring.TagRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NormalizedName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedName")
+                        .IsUnique();
+
+                    b.ToTable("WebTags", (string)null);
+                });
+
+            modelBuilder.Entity("Ateliers.Ai.Assistant.Infrastructure.WebMonitoring.WorkerSourceStateRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("WorkerSourceStates", (string)null);
+                });
+
             modelBuilder.Entity("Ateliers.Ai.Assistant.Infrastructure.Conversations.ImageRow", b =>
                 {
                     b.HasOne("Ateliers.Ai.Assistant.Infrastructure.Conversations.MessageRow", null)
@@ -226,6 +300,21 @@ namespace Ateliers.Ai.Assistant.Infrastructure.Conversations.Migrations
                     b.HasOne("Ateliers.Ai.Assistant.Infrastructure.Conversations.ThreadRow", null)
                         .WithMany()
                         .HasForeignKey("ThreadId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ateliers.Ai.Assistant.Infrastructure.WebMonitoring.ArticleTagRow", b =>
+                {
+                    b.HasOne("Ateliers.Ai.Assistant.Infrastructure.WebMonitoring.ArticleRow", null)
+                        .WithMany()
+                        .HasForeignKey("ArticleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Ateliers.Ai.Assistant.Infrastructure.WebMonitoring.TagRow", null)
+                        .WithMany()
+                        .HasForeignKey("TagId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

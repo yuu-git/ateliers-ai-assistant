@@ -172,6 +172,13 @@ internal static class WebMonitoringTests
         var chatStore = new SqliteConversationStore(fixture.Paths, fixture.Log);
         var loaded = await chatStore.LoadAsync(id);
         Check(loaded?.DraftText == "保存中の下書き" && loaded.Title == "既存会話", "old chat preserved");
+        var oldNotifications = await fixture.Store.NotificationsAsync(default);
+        // Worker 列だけを持たない Phase 3 DB へ戻し、実データを維持した再アップグレードを確認する。
+        await using (var db = new AssistantDbContext(new DbContextOptionsBuilder<AssistantDbContext>().UseSqlite($"Data Source={fixture.Paths.DatabaseFile};Pooling=False").Options))
+            await db.GetService<IMigrator>().MigrateAsync("20261028204923_WebMonitoring");
+        var upgraded = await fixture.Store.NotificationsAsync(default);
+        Check(upgraded.Count == 1 && upgraded[0] == oldNotifications[0] &&
+            (await chatStore.LoadAsync(id))?.DraftText == "保存中の下書き", "Phase 3 web data and chat survive Worker migration");
         await chatStore.DeleteAsync(id);
         Check((await fixture.Store.NotificationsAsync(default)).Count == 1, "chat deletion independent of web data");
     }
@@ -196,8 +203,15 @@ internal static class WebMonitoringTests
         vm.SelectedNotification = notification;
         Check(vm.SelectedDocument?.Content == notification.Item.Notification.MarkdownBody &&
             vm.SelectedDocument.Speaker == notification.Title && vm.SelectedDocument.Final, "selected preview keeps full Markdown without HTML or chat models");
+        var documentChanges = 0;
+        vm.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(vm.SelectedDocument)) documentChanges++; };
         await vm.RefreshAsync();
         Check(vm.SelectedNotification?.Item.Notification.Id == notification.Item.Notification.Id && vm.SelectedDocument is not null, "refresh preserves selected document");
+        var newArticle = (await ManyArticles())[0] with { PublishedAt = DateTimeOffset.UtcNow.AddDays(1) };
+        await ServiceFor(fixture, new MutableFeed { Articles = [newArticle] }).CollectAsync(Url, "summary-model", null, default);
+        await vm.RefreshFeedAsync();
+        Check(vm.Notifications.Count == 2 && ReferenceEquals(vm.SelectedNotification, notification) && documentChanges == 0,
+            "polling and insertion preserve selected row and do not reset Markdown reader");
         vm.SelectedNotification = null; Check(vm.SelectedDocument is null, "deselection clears document");
         File.WriteAllText(fixture.Paths.SettingsFile, "{broken"); await settings.InitializeAsync();
         Check(!await settings.RememberWebAsync("https://example.com/other", null) && File.ReadAllText(fixture.Paths.SettingsFile) == "{broken", "corrupt settings protected");
@@ -242,6 +256,8 @@ internal static class WebMonitoringTests
         var restored = await fixture.NewStore().NotificationsAsync(default);
         var first = restored.Single(item => item.Notification.Title == articles[0].Title);
         var second = restored.Single(item => item.Notification.Title == articles[1].Title);
+        Check(first.FeedSourceUrl == Url && first.SourceUrl == articles[0].Url && first.FeedSourceUrl != first.SourceUrl,
+            "existing database feed source and article URL are separate notification fields");
         Check(first.SummaryModel == "summary-model" && second.SummaryModel == "second-model" && fixture.Chat.Calls == 2,
             "per-article actual model survives restart and duplicate collection with different model");
         Check(new WebNotificationViewModel(first).Detail.Contains("取得: RSS / Atom / 要約モデル: summary-model"), "retrieval is distinct from summarization");

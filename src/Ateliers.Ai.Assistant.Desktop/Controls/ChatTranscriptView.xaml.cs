@@ -53,6 +53,8 @@ public sealed partial class ChatTranscriptView : UserControl, IDisposable
     private bool _rendering;
     private bool _urgent;
     private bool _disposed;
+    /// <summary>診断専用の非表示ビューはブラウザーを初期化しない。表示するビューの既定動作は変更しない。</summary>
+    internal bool RenderingEnabled { get; set; } = true;
 
     /// <summary>会話全体で使う WebView2 と100msの更新集約タイマーを初期化する。</summary>
     public ChatTranscriptView()
@@ -62,7 +64,7 @@ public sealed partial class ChatTranscriptView : UserControl, IDisposable
         _timer.Interval = TimeSpan.FromMilliseconds(100);
         _timer.IsRepeating = false;
         _timer.Tick += (_, _) => _ = RenderAsync();
-        Loaded += async (_, _) => await InitializeBrowserAsync();
+        Loaded += async (_, _) => { if (RenderingEnabled) await InitializeBrowserAsync(); };
         ActualThemeChanged += (_, _) => Invalidate(urgent: true);
     }
 
@@ -291,6 +293,6 @@ public sealed partial class ChatTranscriptView : UserControl, IDisposable
         foreach (var message in _ids.Keys) message.PropertyChanged -= MessageChanged;
         _ids.Clear();
         _initialization.TrySetResult(false);
-        Browser.Close();
+        if (_started) Browser.Close();
     }
 }

@@ -1,0 +1,42 @@
+<UserControl x:Class="Ateliers.Ai.Assistant.Desktop.Controls.WorkerOptionsView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <StackPanel Spacing="20">
+  <Border Padding="20" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+   <StackPanel Spacing="12">
+    <TextBlock Text="バックグラウンド Worker" FontSize="20" FontWeight="SemiBold"/>
+    <TextBlock Text="{Binding ConnectionText}" TextWrapping="Wrap"/>
+    <TextBlock Text="{Binding ErrorMessage}" TextWrapping="Wrap" Foreground="DarkRed"/>
+    <VariableSizedWrapGrid Orientation="Horizontal" MaximumRowsOrColumns="3" ItemWidth="180" ItemHeight="44">
+     <Button Content="Worker を開始" Command="{Binding StartCommand}" Margin="0,0,8,6"/>
+     <Button Content="Worker 設定を再読み込み" Command="{Binding RefreshCommand}" Margin="0,0,8,6"/>
+     <Button Content="Worker の停止…" Margin="0,0,8,6"><Button.Flyout><MenuFlyout><MenuFlyoutItem Text="Worker を停止する" Command="{Binding StopCommand}"/></MenuFlyout></Button.Flyout></Button>
+    </VariableSizedWrapGrid>
+    <TextBlock Text="サインイン時の自動起動" FontWeight="SemiBold"/>
+    <TextBlock Text="{Binding StartupText}" TextWrapping="Wrap"/>
+    <Button Content="サインイン時起動を有効にする" Command="{Binding EnableStartupCommand}"/>
+    <Button Content="自動起動を解除" Command="{Binding DisableStartupCommand}"/>
+    <TextBlock Text="自動起動の登録・解除は押した時点で反映します。Windows Service ではなく、サインイン中の独立プロセスです。UI を閉じても続行しますが、サインアウト中は動作しません。停止操作は自動巡回と AI 処理を停止します。" TextWrapping="Wrap" Opacity="0.7"/>
+    <TextBlock Text="Worker 設定の再読み込みは、情報源と AI 設定の保存済み値を再取得します。編集中の値がある場合は確認します。" TextWrapping="Wrap" Opacity="0.7"/>
+   </StackPanel>
+  </Border>
+  <Border Padding="20" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+   <StackPanel Spacing="12">
+    <TextBlock Text="バックグラウンド AI" FontSize="20" FontWeight="SemiBold"/>
+    <TextBlock Text="{Binding GlobalAiState}" TextWrapping="Wrap"/>
+    <Button Content="{Binding AiPauseActionText}" Command="{Binding ToggleAiPauseCommand}"/>
+    <TextBlock Text="上の即時操作は一時停止だけを反映します。以下の編集中のモデル・許可設定は保存しません。" TextWrapping="Wrap" FontSize="12"/>
+    <ComboBox x:Name="SummaryModelInput" Header="要約モデル（チャットとは独立）" IsEditable="True" ItemsSource="{Binding Models}" Text="{Binding Model, Mode=TwoWay}" HorizontalAlignment="Stretch"/>
+    <CheckBox IsChecked="{Binding AiPaused, Mode=TwoWay}"><TextBlock Text="バックグラウンド AI 処理を一時停止" TextWrapping="Wrap"/></CheckBox>
+    <TextBlock Text="一時停止も保存で反映します。実行中の要約はキャンセルしますが、RSS の取得は継続します。再開後に保存済みの待機記事を処理します。" TextWrapping="Wrap" Opacity="0.7"/>
+    <CheckBox IsChecked="{Binding AllowLoad, Mode=TwoWay}"><TextBlock Text="モデルの自動ロードを許可（初期 OFF）" TextWrapping="Wrap"/></CheckBox>
+    <TextBlock Text="OFF では未ロードのモデルに要約要求を送りません。ON は GPU・メモリを使用し得ます。Ollama サーバー自体は起動しません。" TextWrapping="Wrap" Opacity="0.7"/>
+    <CheckBox IsChecked="{Binding AllowUnload, Mode=TwoWay}"><TextBlock Text="モデルの自動アンロードを許可（初期 OFF）" TextWrapping="Wrap"/></CheckBox>
+    <TextBlock Text="ON でも処理前からロード済みのモデルは停止せず、Worker が新規ロードを確認したモデルのみ解放します。他アプリへの影響は完全には判定できません。OFF でも Ollama 自身の期限による解放は起こり得ます。" TextWrapping="Wrap" Opacity="0.7"/>
+    <TextBlock Text="{Binding AiText}" TextWrapping="Wrap"/>
+    <TextBlock Text="{Binding AiEditState}" TextWrapping="Wrap" FontWeight="SemiBold"/>
+    <Button Content="AI・モデル設定を保存" Command="{Binding SaveOptionsCommand}"/>
+    <TextBlock Text="この保存は、要約モデル・AI 一時停止・自動ロード・自動アンロードが対象です。情報源の編集中の値は保存しません。" TextWrapping="Wrap" FontSize="12" Opacity="0.7"/>
+   </StackPanel>
+  </Border>
+ </StackPanel>
+</UserControl>
