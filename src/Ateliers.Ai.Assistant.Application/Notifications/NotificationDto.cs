@@ -1,6 +1,6 @@
 namespace Ateliers.Ai.Assistant.Application.Notifications;
 
-/// <summary>将来の通知フィードで表示する種別。チャットの Role とは共有しない。</summary>
+/// <summary>通知フィードで表示する種別。チャットの Role とは共有しない。</summary>
 public enum NotificationKind
 {
     /// <summary>通常のお知らせ。</summary>
@@ -11,7 +11,7 @@ public enum NotificationKind
     Error
 }
 
-/// <summary>将来の通知表示に受け渡す最小 DTO。配信処理や永続化機能は含まない。</summary>
+/// <summary>通知表示に受け渡す共通 DTO。配信処理や永続化機能は含まない。</summary>
 /// <param name="Id">通知の識別子。</param>
 /// <param name="OccurredAt">事象の発生日時。</param>
 /// <param name="Kind">通知種別。</param>

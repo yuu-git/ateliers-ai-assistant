@@ -9,6 +9,8 @@ using Microsoft.UI.Dispatching;
 using Ateliers.Ai.Assistant.Infrastructure.Storage;
 using Ateliers.Ai.Assistant.Infrastructure.Conversations;
 using Ateliers.Ai.Assistant.Desktop.Storage;
+using Ateliers.Ai.Assistant.Application.WebMonitoring;
+using Ateliers.Ai.Assistant.Infrastructure.WebMonitoring;
 
 namespace Ateliers.Ai.Assistant.Desktop;
 
@@ -34,6 +36,18 @@ public partial class App : Microsoft.UI.Xaml.Application
     {
 #if DEBUG
         var arguments = Environment.GetCommandLineArgs();
+        var deletionIndex = Array.IndexOf(arguments, "--verify-web-deletion-interactive");
+        if (deletionIndex >= 0 && deletionIndex + 1 < arguments.Length)
+        {
+            _window = Diagnostics.WebMonitoringVerification.CreateDeletionInteractive(arguments[deletionIndex + 1]);
+            _window.Activate(); return;
+        }
+        var webVerifyIndex = Array.IndexOf(arguments, "--verify-web");
+        if (webVerifyIndex >= 0 && webVerifyIndex + 3 < arguments.Length)
+        {
+            _window = Diagnostics.WebMonitoringVerification.Create(arguments[webVerifyIndex + 1], arguments[webVerifyIndex + 2], arguments[webVerifyIndex + 3] == "resume");
+            _window.Activate(); return;
+        }
         var liveStorageIndex = Array.IndexOf(arguments, "--verify-storage-interactive-live");
         if (liveStorageIndex >= 0 && liveStorageIndex + 1 < arguments.Length)
         {
@@ -89,9 +103,13 @@ public partial class App : Microsoft.UI.Xaml.Application
         var store = new SqliteConversationStore(paths, diagnostics);
         var settings = new SettingsViewModel(paths, new JsonUserSettingsStore(paths, diagnostics), diagnostics,
             new FixedDataFolderOpener(paths).OpenAsync);
+        var feedClient = new HttpClient(RssFeedSource.CreateHandler()) { Timeout = Timeout.InfiniteTimeSpan };
+        var webStore = new SqliteWebMonitoringStore(paths, diagnostics);
+        var webService = new WebCollectionService(new RssFeedSource(feedClient), webStore, new ArticleMarkdownWriter(paths), session, diagnostics);
+        var web = new WebMonitoringViewModel(webService, webStore, session, session, settings, diagnostics, Dispatch, new ArticleLinkOpener(paths).OpenAsync);
         _window = new MainWindow(new ChatViewModel(session, session, Dispatch, store, diagnostics),
-            new ModelManagementViewModel(session, Dispatch), session, settings);
-        _window.Closed += (_, _) => _chatClient.Dispose();
+            new ModelManagementViewModel(session, Dispatch), session, settings, web);
+        _window.Closed += (_, _) => { _chatClient.Dispose(); feedClient.Dispose(); };
         _window.Activate();
     }
 }

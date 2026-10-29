@@ -94,7 +94,7 @@ internal static class PersistenceTests
         using (var connection = new SqliteConnection($"Data Source={fixture.Paths.DatabaseFile};Pooling=False"))
         {
             connection.Open();
-            Check(Scalar(connection, "SELECT COUNT(*) FROM __EFMigrationsHistory") == 1, "migration history");
+        Check(Scalar(connection, "SELECT COUNT(*) FROM __EFMigrationsHistory") == 2, "migration history");
             Check(Scalar(connection, "SELECT COUNT(*) FROM Images WHERE typeof(PngBytes)='blob'") == 2, "PNG BLOB storage");
         }
         var changed = await restarted.SaveAsync(loaded with { Title = "名前を変更", DraftText = "", DraftImage = null });

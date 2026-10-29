@@ -22,6 +22,9 @@
                 <NavigationViewItem Content="設定" Tag="Settings">
                     <NavigationViewItem.Icon><SymbolIcon Symbol="Setting" /></NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem x:Name="WebNavigationItem" Content="Web 情報収集" Tag="Web">
+                    <NavigationViewItem.Icon><SymbolIcon Symbol="World" /></NavigationViewItem.Icon>
+                </NavigationViewItem>
             </NavigationView.MenuItems>
             <Grid x:Name="ContentRoot">
             <Grid x:Name="ChatPanel" Padding="24" RowSpacing="16">
@@ -184,6 +187,57 @@
                     </ListView.ItemTemplate>
                 </ListView>
             </Grid>
+            <Grid x:Name="WebPanel" Visibility="Collapsed" Padding="24" RowSpacing="12" DataContext="{x:Bind WebViewModel}">
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Web 情報収集" FontSize="28" FontWeight="SemiBold" />
+                    <TextBlock Text="RSS / Atom 1件から公開日時の新しい10記事を手動取得します。リンク先の全文は取得しません。収集中はチャット・モデル操作と排他制御します。" TextWrapping="Wrap" />
+                    <TextBox x:Name="WebFeedUrlInput" Header="フィード URL（公開 HTTP / HTTPS）" Text="{Binding FeedUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MaxLength="4096" IsEnabled="{x:Bind WebViewModel.CanEdit, Mode=OneWay}" AutomationProperties.AutomationId="WebFeedUrl" />
+                    <ComboBox x:Name="WebModelInput" Header="要約モデル（選択だけではロードしません）" ItemsSource="{x:Bind WebViewModel.Models}" SelectedItem="{Binding SelectedModel, Mode=TwoWay}" IsEnabled="{x:Bind WebViewModel.CanEdit, Mode=OneWay}" HorizontalAlignment="Stretch" AutomationProperties.AutomationId="WebSummaryModel" />
+                </StackPanel>
+                <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12">
+                    <Button Content="取得" Command="{x:Bind WebViewModel.FetchCommand}" AutomationProperties.AutomationId="WebFetch" />
+                    <Button Content="中止" Command="{x:Bind WebViewModel.CancelCommand}" />
+                    <Button Content="設定を保存" Command="{x:Bind WebViewModel.SaveSettingsCommand}" />
+                    <Button Content="一覧を更新" Command="{x:Bind WebViewModel.RefreshCommand}" />
+                    <ProgressRing IsActive="{x:Bind WebViewModel.IsRunning, Mode=OneWay}" Width="24" Height="24" />
+                </StackPanel>
+                <TextBlock Grid.Row="2" Text="{x:Bind WebViewModel.StateText, Mode=OneWay}" TextWrapping="Wrap" />
+                <InfoBar Grid.Row="3" IsOpen="{x:Bind WebViewModel.HasError, Mode=OneWay}" Message="{x:Bind WebViewModel.ErrorMessage, Mode=OneWay}" Severity="Error" IsClosable="False" />
+                <Grid Grid.Row="4" ColumnSpacing="20">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Grid RowSpacing="8">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+                        <TextBlock Text="巡回履歴（最新100件）" FontSize="20" />
+                        <ListView x:Name="WebRunList" Grid.Row="1" ItemsSource="{x:Bind WebViewModel.Runs}" SelectionMode="None" AutomationProperties.AutomationId="WebRuns">
+                            <ListView.ItemTemplate><DataTemplate x:DataType="vm:WebRunViewModel"><StackPanel Spacing="6" Padding="4,8">
+                                <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="{x:Bind Detail}" TextWrapping="Wrap" /><TextBlock Text="{x:Bind Error}" TextWrapping="Wrap" />
+                            </StackPanel></DataTemplate></ListView.ItemTemplate>
+                        </ListView>
+                    </Grid>
+                    <Grid Grid.Column="1" RowSpacing="8">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="2*" /><RowDefinition Height="Auto" /><RowDefinition Height="3*" /></Grid.RowDefinitions>
+                        <TextBlock Text="通知フィード（公開日時の新しい順・最新100件）" FontSize="20" TextWrapping="Wrap" />
+                        <StackPanel Grid.Row="1" Spacing="8">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="元記事を開く" Command="{x:Bind WebViewModel.OpenSourceCommand}" />
+                            <Button Content="保存 Markdown を開く" Command="{x:Bind WebViewModel.OpenMarkdownCommand}" />
+                            </StackPanel>
+                            <Button Content="記事をまとめて削除" Command="{x:Bind WebViewModel.DeleteArticlesCommand}" AutomationProperties.AutomationId="DeleteWebArticles" />
+                        </StackPanel>
+                        <ListView x:Name="WebNotificationList" Grid.Row="2" ItemsSource="{x:Bind WebViewModel.Notifications}" SelectedItem="{Binding SelectedNotification, Mode=TwoWay}" AutomationProperties.AutomationId="WebNotifications">
+                            <ListView.ItemTemplate><DataTemplate x:DataType="vm:WebNotificationViewModel"><StackPanel Spacing="6" Padding="4,8">
+                                <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="{x:Bind Detail}" FontSize="12" TextWrapping="Wrap" />
+                            </StackPanel></DataTemplate></ListView.ItemTemplate>
+                        </ListView>
+                        <TextBlock Grid.Row="3" Text="通知本文（一覧で通知を選択してください）" FontWeight="SemiBold" />
+                        <controls:ChatTranscriptView x:Name="NotificationPreview" Grid.Row="4"
+                            Document="{x:Bind WebViewModel.SelectedDocument, Mode=OneWay}" AutomationProperties.Name="通知の Markdown 本文" />
+                    </Grid>
+                </Grid>
+            </Grid>
             <ScrollViewer x:Name="SettingsPanel" Visibility="Collapsed" Padding="24" DataContext="{x:Bind SettingsViewModel}">
                 <StackPanel Spacing="16" MaxWidth="900" HorizontalAlignment="Left">
                     <TextBlock Text="設定" FontSize="28" FontWeight="SemiBold" />
@@ -200,7 +254,7 @@
                     <Button Content="DB フォルダーを開く" Command="{x:Bind SettingsViewModel.OpenDatabaseCommand}" />
                     <TextBox Header="ログ" IsReadOnly="True" Text="{x:Bind SettingsViewModel.Paths.LogsDirectory}" />
                     <Button Content="ログフォルダーを開く" Command="{x:Bind SettingsViewModel.OpenLogsCommand}" />
-                    <TextBlock Text="最後に選択したモデルだけを設定へ保存します。起動時に存在すれば選択を復元し、自動ロードはしません。" TextWrapping="Wrap" />
+                    <TextBlock Text="チャットの最終選択モデル、Web フィード URL と要約モデルを設定へ保存します。起動時は選択を復元し、自動ロード・自動収集はしません。" TextWrapping="Wrap" />
                     <Button Content="設定を再読み込み" Command="{x:Bind SettingsViewModel.ReloadCommand}" />
                 </StackPanel>
             </ScrollViewer>

@@ -30,13 +30,13 @@ public interface IModelControlService
     Task UnloadModelAsync(string model, CancellationToken cancellationToken = default);
 }
 
-/// <summary>Phase 1 の単一チャット用管理。将来の複数機能の利用権管理とは分離する。</summary>
+/// <summary>Desktop 内の生成・モデル操作を直列化する管理。並行利用の参照数・機能別所有権は扱わない。</summary>
 public interface IModelLifecycleService
 {
     /// <summary>ロード状態・実行中状態・終了状態の変更を通知する。</summary>
     /// <remarks>購読側で UI スレッドへの移送を行う。</remarks>
     event EventHandler? Changed;
-    /// <summary>チャットまたはモデル操作を実行中かどうかを取得する。</summary>
+    /// <summary>チャット・Web 収集・モデル操作のいずれかを実行中かどうかを取得する。</summary>
     bool IsBusy { get; }
     /// <summary>終了処理が開始され、新しい操作を受け付けないかどうかを取得する。</summary>
     bool IsClosing { get; }

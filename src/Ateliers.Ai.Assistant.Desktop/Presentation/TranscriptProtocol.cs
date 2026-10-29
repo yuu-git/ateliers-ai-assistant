@@ -30,7 +30,8 @@ public sealed record RenderedMessage(string Id, string Html, string Speaker, str
 /// <param name="Messages">今回の差分で追加または更新する変換済みメッセージ。</param>
 /// <param name="Order">会話全体の表示順 ID。並び順に変更がない場合は null。</param>
 /// <param name="Dark">ダークテーマで表示する場合は true。</param>
-public sealed record TranscriptPatch(long Generation, long Revision, RenderedMessage[] Messages, string[]? Order, bool Dark);
+/// <param name="DocumentMode">単一文書のプレビュー。自動追従をせず、選択変更時は先頭から表示する。</param>
+public sealed record TranscriptPatch(long Generation, long Revision, RenderedMessage[] Messages, string[]? Order, bool Dark, bool DocumentMode = false);
 /// <summary>同梱ページから受け取る準備通知またはリンク操作。</summary>
 /// <param name="Type">ページが送信したメッセージの種類。</param>
 /// <param name="Href">クリックされた未検証 URL。準備通知では null。</param>

@@ -7,6 +7,23 @@ if (args.Length == 2 && args[0] == "--ollama-model")
 }
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("RSS/Atom 正規化・空フィード", WebMonitoringTests.Parsing),
+    ("通知の公開日時順・日時不明・最新100件", WebMonitoringTests.NotificationOrdering),
+    ("通知の記事別要約モデル・復元・モデル変更後の維持", WebMonitoringTests.NotificationModelHistory),
+    ("最新10件の選択・範囲外の再試行保留", WebMonitoringTests.LatestTen),
+    ("複数記事削除・単一削除・新規再取得", WebMonitoringTests.BulkDeleteAndRestore),
+    ("削除の部分失敗・欠損ファイル・再試行", WebMonitoringTests.DeleteFailures),
+    ("削除確認キャンセル・プレビュー消去・再取得", WebMonitoringTests.DeleteViewModel),
+    ("記事識別・URL 安全性・追跡パラメーター", WebMonitoringTests.IdentityAndUrls),
+    ("XML/HTTP/サイズ/リダイレクト/中止の拒否", WebMonitoringTests.FetchFailures),
+    ("連続実行・再起動後の通知重複防止", WebMonitoringTests.DedupAndRestart),
+    ("要約失敗・空応答後の再試行", WebMonitoringTests.SummaryRetry),
+    ("Markdown 保存失敗後の段階別再試行", WebMonitoringTests.FileRetry),
+    ("モデル未選択・停止・中止と回復", WebMonitoringTests.ModelsAndCancel),
+    ("収集とチャット・モデル停止の排他", WebMonitoringTests.SharedModelExclusion),
+    ("Phase 2 DB Migration と既存会話保持", WebMonitoringTests.MigrationAndConversation),
+    ("Web/チャット設定・ViewModel・破損保護", WebMonitoringTests.SettingsAndViewModel),
+    ("Web 保存先の環境分離", WebMonitoringTests.EnvironmentIsolation),
     ("Debug/Release 保存先分離・既存データの維持", PersistenceTests.DebugAndReleaseIsolation),
     ("固定保存先・未保存会話・遅延作成", PersistenceTests.PathsAndLazyCreation),
     ("実SQLite・Migration・BLOB・競合・カスケード削除", PersistenceTests.SqliteRoundTripAndCascade),

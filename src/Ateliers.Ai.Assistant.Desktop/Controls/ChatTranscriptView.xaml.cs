@@ -16,9 +16,19 @@ using Launcher = Windows.System.Launcher;
 
 namespace Ateliers.Ai.Assistant.Desktop.Controls;
 
-/// <summary>会話表示専用。WebView2 はこのコントロールに一つだけ保持する。</summary>
+/// <summary>会話一覧または単一の Markdown 文書を、安全性と世代管理を共有する WebView2 一つで表示する。</summary>
 public sealed partial class ChatTranscriptView : UserControl, IDisposable
 {
+    /// <summary>通知などの全文プレビュー用。チャットの ViewModel を作らず表示用スナップショットを渡す。</summary>
+    public static readonly DependencyProperty DocumentProperty = DependencyProperty.Register(nameof(Document),
+        typeof(MessageSnapshot), typeof(ChatTranscriptView),
+        new PropertyMetadata(null, (owner, _) => ((ChatTranscriptView)owner).ResetConversation()));
+    /// <summary>単一文書の原文・見出し・補足。ItemsSource と同時には指定しない。</summary>
+    public MessageSnapshot? Document
+    {
+        get => (MessageSnapshot?)GetValue(DocumentProperty);
+        set => SetValue(DocumentProperty, value);
+    }
     /// <summary>表示対象のメッセージ一覧をバインドする依存関係プロパティ。</summary>
     public static readonly DependencyProperty ItemsSourceProperty = DependencyProperty.Register(nameof(ItemsSource),
         typeof(IEnumerable<ChatMessageViewModel>), typeof(ChatTranscriptView),
@@ -138,9 +148,7 @@ public sealed partial class ChatTranscriptView : UserControl, IDisposable
         _urgent = false;
         var generation = _projection.Generation;
         var revision = _revision;
-        var snapshot = (ItemsSource ?? Array.Empty<ChatMessageViewModel>()).Select(message => new MessageSnapshot(
-            _ids[message], message.Content, message.Speaker, message.DetailText, message.IsUser,
-            message.StatusText is not ("応答待ち…" or "受信中…"), message.Image)).ToArray();
+        var snapshot = CaptureSnapshot();
         try
         {
             // 単一の worker だけがキャッシュに触れる。解析・安全化で UI スレッドを占有しない。
@@ -158,12 +166,17 @@ public sealed partial class ChatTranscriptView : UserControl, IDisposable
             }
         }
     }
+    /// <summary>単一文書または会話一覧を、同じ原文スナップショットへ変換する。</summary>
+    private MessageSnapshot[] CaptureSnapshot() => Document is { } document ? [document] :
+        (ItemsSource ?? Array.Empty<ChatMessageViewModel>()).Select(message => new MessageSnapshot(
+            _ids[message], message.Content, message.Speaker, message.DetailText, message.IsUser,
+            message.StatusText is not ("応答待ち…" or "受信中…"), message.Image)).ToArray();
     /// <summary>有効な表示差分を JSON として送信し、モデル出力をスクリプトへ連結しない。</summary>
     /// <param name="patch">送信する差分。古い結果が拒否された場合は null。</param>
     private void Publish(TranscriptPatch? patch)
     {
         if (patch is null || !_ready || _disposed) return;
-        Browser.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(patch, TranscriptJsonContext.Default.TranscriptPatch));
+        Browser.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(patch with { DocumentMode = ItemsSource is null }, TranscriptJsonContext.Default.TranscriptPatch));
     }
     /// <summary>ブラウザーを一度だけ初期化し、同梱資産と許可した操作だけに表示を制限する。</summary>
     /// <returns>操作の完了を表すタスク。</returns>
@@ -173,6 +186,12 @@ public sealed partial class ChatTranscriptView : UserControl, IDisposable
         _started = true;
         try
         {
+            if (ItemsSource is null)
+            {
+                DisplayError.Title = "Markdown 表示";
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(Browser, "通知本文");
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(FallbackText, "通知原文");
+            }
             await Browser.EnsureCoreWebView2Async();
             if (_disposed) return;
             var core = Browser.CoreWebView2;
@@ -258,8 +277,8 @@ public sealed partial class ChatTranscriptView : UserControl, IDisposable
         UpdateFallback();
     }
     /// <summary>会話原文と添付サイズをネイティブのフォールバック表示へ反映する。</summary>
-    private void UpdateFallback() => FallbackText.Text = string.Join("\n\n", (ItemsSource ?? Array.Empty<ChatMessageViewModel>())
-        .Select(message => $"{message.Speaker}\n{(message.Image is null ? "" : $"[添付画像 {message.Image.Width} × {message.Image.Height} px]\n")}{message.Content}\n{message.DetailText}"));
+    private void UpdateFallback() => FallbackText.Text = string.Join("\n\n", CaptureSnapshot()
+        .Select(message => $"{message.Speaker}\n{(message.Image is null ? "" : $"[添付画像 {message.Image.Width} × {message.Image.Height} px]\n")}{message.Content}\n{message.Detail}"));
 
     /// <summary>変更通知とタイマーを解除し、WebView2 を閉じて旧非同期結果を無効にする。</summary>
     public void Dispose()

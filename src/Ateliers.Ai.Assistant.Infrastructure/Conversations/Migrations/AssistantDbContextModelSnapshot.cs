@@ -126,6 +126,87 @@ namespace Ateliers.Ai.Assistant.Infrastructure.Conversations.Migrations
                     b.ToTable("Conversations", (string)null);
                 });
 
+            modelBuilder.Entity("Ateliers.Ai.Assistant.Infrastructure.WebMonitoring.ArticleRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Error")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("FetchedTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Key")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MarkdownPath")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Model")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Notified")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Summary")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Key")
+                        .IsUnique();
+
+                    b.HasIndex("Source", "Notified");
+
+                    b.ToTable("WebArticles", (string)null);
+                });
+
+            modelBuilder.Entity("Ateliers.Ai.Assistant.Infrastructure.WebMonitoring.NotificationRow", b =>
+                {
+                    b.Property<Guid>("ArticleId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("ArticleId");
+
+                    b.HasIndex("CreatedTicks");
+
+                    b.ToTable("WebNotifications", (string)null);
+                });
+
+            modelBuilder.Entity("Ateliers.Ai.Assistant.Infrastructure.WebMonitoring.RunRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("StartedTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StartedTicks");
+
+                    b.ToTable("WebCollectionRuns", (string)null);
+                });
+
             modelBuilder.Entity("Ateliers.Ai.Assistant.Infrastructure.Conversations.ImageRow", b =>
                 {
                     b.HasOne("Ateliers.Ai.Assistant.Infrastructure.Conversations.MessageRow", null)
@@ -145,6 +226,15 @@ namespace Ateliers.Ai.Assistant.Infrastructure.Conversations.Migrations
                     b.HasOne("Ateliers.Ai.Assistant.Infrastructure.Conversations.ThreadRow", null)
                         .WithMany()
                         .HasForeignKey("ThreadId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Ateliers.Ai.Assistant.Infrastructure.WebMonitoring.NotificationRow", b =>
+                {
+                    b.HasOne("Ateliers.Ai.Assistant.Infrastructure.WebMonitoring.ArticleRow", null)
+                        .WithOne()
+                        .HasForeignKey("Ateliers.Ai.Assistant.Infrastructure.WebMonitoring.NotificationRow", "ArticleId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

@@ -2,6 +2,7 @@
 (() => {
   const transcript = document.getElementById("transcript");
   const empty = document.getElementById("empty");
+  const emptyChatText = empty.textContent;
   const entries = new Map();
   let generation = -1;
   let revision = -1;
@@ -84,9 +85,14 @@
       });
     }
     empty.hidden = entries.size !== 0;
+    empty.textContent = patch.documentMode ? "通知を選択すると本文を表示します。" : emptyChatText;
     cancelAnimationFrame(scrollFrame);
     scrollFrame = requestAnimationFrame(() => {
-      if (shouldFollow) { window.scrollTo(0, document.documentElement.scrollHeight); following = true; }
+      if (patch.documentMode) {
+        if (reset) window.scrollTo(0, 0);
+        else if (anchor?.isConnected) window.scrollBy(0, anchor.getBoundingClientRect().top - anchorTop);
+      }
+      else if (shouldFollow) { window.scrollTo(0, document.documentElement.scrollHeight); following = true; }
       else if (anchor?.isConnected) window.scrollBy(0, anchor.getBoundingClientRect().top - anchorTop);
     });
   });

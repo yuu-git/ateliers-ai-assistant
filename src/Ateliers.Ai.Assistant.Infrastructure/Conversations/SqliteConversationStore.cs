@@ -10,7 +10,7 @@ namespace Ateliers.Ai.Assistant.Infrastructure.Conversations;
 /// <remarks>未作成 DB の一覧取得は空一覧。最初の保存時だけ Migration と必要フォルダーを作成する。</remarks>
 public sealed class SqliteConversationStore(IApplicationPaths paths, IAppDiagnostics diagnostics) : IConversationStore
 {
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly SemaphoreSlim _gate = AssistantDatabase.Gate(paths);
     private bool _databaseSeen;
 
     /// <inheritdoc/>

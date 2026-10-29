@@ -18,6 +18,7 @@ public sealed class AssistantDbContext(DbContextOptions<AssistantDbContext> opti
     /// <summary>外部キー、順序、1メッセージ1画像と楽観的同時実行を設定する。</summary>
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        WebMonitoring.WebSchema.Configure(modelBuilder);
         modelBuilder.Entity<ThreadRow>(entity =>
         {
             entity.ToTable("Conversations");

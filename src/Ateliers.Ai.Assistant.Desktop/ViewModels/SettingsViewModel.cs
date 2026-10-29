@@ -18,6 +18,9 @@ public sealed partial class SettingsViewModel : ObservableObject
     private long _request;
     private string _error = "";
     private Task _pendingSave = Task.CompletedTask;
+    private UserSettings _current = new();
+    /// <summary>再読み込みした Web 設定を画面に適用する。モデルのロードは行わない。</summary>
+    public Action<string?, string?>? ApplyWebSettings { get; set; }
     /// <summary>パス、設定ストア、固定フォルダーを開く処理をホストから受け取る。</summary>
     public SettingsViewModel(IApplicationPaths paths, IUserSettingsStore store, IAppDiagnostics diagnostics, Func<DataFolderKind, Task> openFolder)
     {
@@ -59,8 +62,10 @@ public sealed partial class SettingsViewModel : ObservableObject
         {
             await _pendingSave;
             var settings = await _store.LoadAsync();
+            _current = settings;
             _readable = true; ErrorMessage = "";
             if (ApplySelectedModelAsync is not null) await ApplySelectedModelAsync(settings.LastSelectedModel);
+            ApplyWebSettings?.Invoke(settings.WebFeedUrl, settings.WebSummaryModel);
         }
         catch (Exception exception) { _readable = false; Failure("settings.initialize", exception); }
         finally { IsApplyingSettings = false; }
@@ -70,15 +75,25 @@ public sealed partial class SettingsViewModel : ObservableObject
     {
         if (IsApplyingSettings || !_readable) return Task.CompletedTask;
         var request = ++_request;
-        return _pendingSave = SaveModelAsync(model, request, _pendingSave);
+        _current = _current with { LastSelectedModel = model };
+        return _pendingSave = SaveSettingsAsync(_current, request, _pendingSave);
+    }
+    /// <summary>他の設定値を維持して Web 設定を同じ保存キューへ追加する。不正ファイルの保護中は保存しない。</summary>
+    public Task<bool> RememberWebAsync(string url, string? model)
+    {
+        if (!_readable) return Task.FromResult(false);
+        _current = _current with { WebFeedUrl = url, WebSummaryModel = model };
+        var save = SaveSettingsAsync(_current, ++_request, _pendingSave);
+        _pendingSave = save;
+        return save;
     }
     /// <summary>終了前に最後の設定保存の完了を待つ。</summary>
     public Task FlushAsync() => _pendingSave;
     /// <summary>設定を書き込み、古い保存の完了で新しいエラー表示を上書きしない。</summary>
-    private async Task SaveModelAsync(string? model, long request, Task previous)
+    private async Task<bool> SaveSettingsAsync(UserSettings settings, long request, Task previous)
     {
-        try { await previous; await _store.SaveAsync(new UserSettings(model)); if (request == _request) ErrorMessage = ""; }
-        catch (Exception exception) { if (request == _request) Failure("settings.remember.model", exception); }
+        try { await previous; await _store.SaveAsync(settings); if (request == _request) ErrorMessage = ""; return true; }
+        catch (Exception exception) { if (request == _request) Failure("settings.save", exception); return false; }
     }
     /// <summary>内部固定フォルダーの起動失敗を通知する。</summary>
     private async Task OpenAsync(DataFolderKind kind, Func<DataFolderKind, Task> openFolder)

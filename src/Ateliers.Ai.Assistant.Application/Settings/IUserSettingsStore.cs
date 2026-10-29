@@ -2,7 +2,9 @@ namespace Ateliers.Ai.Assistant.Application.Settings;
 
 /// <summary>Roaming に保存する小容量のユーザー設定。</summary>
 /// <param name="LastSelectedModel">最後に選択したモデル名。自動ロードは指示しない。</param>
-public sealed record UserSettings(string? LastSelectedModel = null);
+/// <param name="WebFeedUrl">手動取得する1件の RSS / Atom URL。</param>
+/// <param name="WebSummaryModel">チャットと独立した要約モデル選択。復元時に自動ロードしない。</param>
+public sealed record UserSettings(string? LastSelectedModel = null, string? WebFeedUrl = null, string? WebSummaryModel = null);
 
 /// <summary>固定された Roaming 保存先でユーザー設定を読み書きする契約。</summary>
 public interface IUserSettingsStore

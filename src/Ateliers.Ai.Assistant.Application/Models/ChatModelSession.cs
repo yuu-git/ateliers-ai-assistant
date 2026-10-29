@@ -2,14 +2,15 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Ateliers.Ai.Assistant.Application.Chat;
 using Ateliers.Ai.Assistant.Core.Chat;
+using Ateliers.Ai.Assistant.Application.WebMonitoring;
 
 namespace Ateliers.Ai.Assistant.Application.Models;
 
 /// <summary>
-/// Desktop の単一チャット用ライフサイクル。UI / HTTP に依存しない。
-/// ps の一覧は管理対象に取り込まない。明示ロード・チャット使用時だけ追跡する。
+/// Desktop のチャットと手動 Web 収集を直列化するライフサイクル。UI / HTTP に依存しない。
+/// ps の一覧は管理対象に取り込まない。明示ロード・生成要求時だけ追跡する。
 /// </summary>
-public sealed class ChatModelSession : IChatService, IModelLifecycleService
+public sealed class ChatModelSession : IChatService, IModelLifecycleService, IModelWorkCoordinator
 {
     private readonly IChatService _chat;
     private readonly IModelControlService _control;
@@ -23,7 +24,7 @@ public sealed class ChatModelSession : IChatService, IModelLifecycleService
     private volatile bool _known;
     private Task? _shutdown;
 
-    /// <summary>チャット通信とモデル操作の実装を受け取り、単一チャット用セッションを構成する。</summary>
+    /// <summary>チャット通信とモデル操作の実装を受け取り、Desktop 内の共通排他セッションを構成する。</summary>
     /// <param name="chat">回答生成と利用可能モデルの一覧取得を行うサービス。</param>
     /// <param name="control">モデルのロード・停止とサーバー全体の状態取得を行うサービス。</param>
     public ChatModelSession(IChatService chat, IModelControlService control)
@@ -121,10 +122,25 @@ public sealed class ChatModelSession : IChatService, IModelLifecycleService
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _operations.Token);
         using var operation = await EnterAsync(linked.Token).ConfigureAwait(false);
+        await foreach (var chunk in StreamCoreAsync(model, messages, linked.Token).ConfigureAwait(false)) yield return chunk;
+    }
+
+    /// <summary>Web 収集全体をチャット・モデル停止と直列化し、内部では再入不要なチャットポートを渡す。</summary>
+    public async Task RunExclusiveAsync(Func<IChatService, CancellationToken, Task> work, CancellationToken token)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, _operations.Token);
+        using var operation = await EnterAsync(linked.Token).ConfigureAwait(false);
+        await work(new ScopedChat(this), linked.Token).ConfigureAwait(false);
+    }
+
+    /// <summary>取得済みの排他権の内側で回答を生成し、利用したモデルを追跡する。</summary>
+    private async IAsyncEnumerable<string> StreamCoreAsync(string model, IReadOnlyList<ChatMessage> messages,
+        [EnumeratorCancellation] CancellationToken token)
+    {
         Track(model);
         try
         {
-            await foreach (var chunk in _chat.StreamReplyAsync(model, messages, linked.Token).ConfigureAwait(false))
+            await foreach (var chunk in _chat.StreamReplyAsync(model, messages, token).ConfigureAwait(false))
                 yield return chunk;
         }
         finally
@@ -135,6 +151,16 @@ public sealed class ChatModelSession : IChatService, IModelLifecycleService
             try { await RefreshCoreAsync(refresh.Token).ConfigureAwait(false); }
             catch (Exception exception) { Trace.TraceError("Model state refresh after chat: {0}", exception); }
         }
+    }
+
+    /// <summary>排他コールバックの内部専用ポート。UI や会話履歴は保持しない。</summary>
+    private sealed class ScopedChat(ChatModelSession owner) : IChatService
+    {
+        /// <inheritdoc/>
+        public Task<IReadOnlyList<string>> GetModelsAsync(CancellationToken cancellationToken = default) => owner.GetModelsAsync(cancellationToken);
+        /// <inheritdoc/>
+        public IAsyncEnumerable<string> StreamReplyAsync(string model, IReadOnlyList<ChatMessage> messages, CancellationToken cancellationToken = default) =>
+            owner.StreamCoreAsync(model, messages, cancellationToken);
     }
 
     /// <summary>状態を一度未確認にし、取得に成功した一覧と確認済み状態を通知する。</summary>
@@ -205,7 +231,7 @@ public sealed class ChatModelSession : IChatService, IModelLifecycleService
     {
         if (_closing) throw new OperationCanceledException("アプリケーションを終了しています。", token);
         if (!await _gate.WaitAsync(0, token).ConfigureAwait(false))
-            throw new ChatServiceException("チャットまたはモデル操作の完了を待ってください。");
+            throw new ChatServiceException("チャット・Web 収集・モデル操作の完了を待ってください。");
         if (_closing) { _gate.Release(); throw new OperationCanceledException(token); }
         _busy = true;
         Changed?.Invoke(this, EventArgs.Empty);

@@ -18,7 +18,7 @@ public sealed class JsonUserSettingsStore(IApplicationPaths paths, IAppDiagnosti
             using var stream = File.OpenRead(paths.SettingsFile);
             if (stream.Length > 64 * 1024) throw new JsonException("Settings exceed the permitted size.");
             var settings = await JsonSerializer.DeserializeAsync(stream, SettingsJsonContext.Default.UserSettings, cancellationToken).ConfigureAwait(false);
-            if (settings is null || settings.LastSelectedModel?.Length > 512) throw new JsonException("Invalid settings.");
+            if (settings is null || settings.LastSelectedModel?.Length > 512 || settings.WebSummaryModel?.Length > 512 || settings.WebFeedUrl?.Length > 4096) throw new JsonException("Invalid settings.");
             return settings;
         }
         catch (FileNotFoundException) { return new UserSettings(); }
