@@ -14,13 +14,13 @@
   <Identity
     Name="Ateliers.Ai.Assistant.Debug"
     Publisher="CN=yuuko"
-    Version="1.0.0.0" />
+    Version="0.7.0.0" />
 
   <mp:PhoneIdentity PhoneProductId="9de83433-c096-4f35-80be-b9659ce705da" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
     <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
-    <DisplayName>ateliers-ai-assistant Debug</DisplayName>
+    <DisplayName>Ateliers AI Assistant (Debug)</DisplayName>
     <PublisherDisplayName>yuuko</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
@@ -39,8 +39,8 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="Ateliers-Ai-Assistant"
-        Description="ateliers-ai-assistant"
+        DisplayName="Ateliers AI Assistant (Debug)"
+        Description="Ateliers AI Assistant"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">

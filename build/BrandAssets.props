@@ -1,0 +1,10 @@
+<Project>
+  <!-- One source for EXE resources and runtime window/tray icons in both hosts. -->
+  <PropertyGroup>
+    <ApplicationIcon>$(MSBuildThisFileDirectory)..\assets\branding\app.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="$(ApplicationIcon)" Link="Assets\Branding\app.ico"
+             CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

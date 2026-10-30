@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <Version>0.7.0</Version>
+    <AssemblyVersion>0.7.0.0</AssemblyVersion>
+    <FileVersion>0.7.0.0</FileVersion>
+    <Product>Ateliers AI Assistant</Product>
+    <Company>yuuko</Company>
+  </PropertyGroup>
+</Project>

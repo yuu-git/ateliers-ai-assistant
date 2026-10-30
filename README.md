@@ -1,8 +1,16 @@
-# Ateliers AI Assistant — MVP 完了後の複数画面監視基盤
+# Ateliers AI Assistant
+
+![Ateliers AI Assistant](assets/branding/readme-header.png)
+
+現在の仕上げ版は **0.7.0**。第二段階の一般アイコンを EXE・ウィンドウ・監視トレイ・既存パッケージへ組み込み、製品情報を統一しました。機能の到達点は Phase 7 MVP と、その後の最大4件の独立画面監視です。更新前に旧 Worker を停止し、Desktop と `Worker/` を同じ版で更新してください。
+
+導入・ビルド手順は下記、今回の変更と検証は [リリースノート](CHANGELOG.md)、素材の固定パスと差し替え手順は [アイコン・製品情報](docs/features/branding-and-release.md) を参照してください。第三段階のキャラクター制作と MSIX の新規対応は含みません。
+
+## 複数画面監視基盤の導入記録
 
 Phase 7 MVP は利用者確認を受けて完了しました。今回の拡張は同じ Worker 内で最大4件の独立監視を管理し、現在画像1枚の取得・Visionを全体1件ずつ実行します。同じ対象を二重に登録しても設定・周期・モデル・コメントは独立します。監視一覧から追加・停止・削除でき、Desktop 終了後の継続・再起動UIの復元、トレイの全停止も利用できます。
 
-現在の版は **7.1.0**。旧 Worker を停止してから更新してください。旧単一設定は既存 JSON の監視定義1件へ移行し、Worker 再起動時は全監視停止・対象再選択から始めます。本文は全監視合計約1 MiB、監視ごと200件まで。自動ロード／アンロード・AI停止・モデル排他・共有 Temp を維持します。設定UI・DB Migration・新規 NuGet・専用 Agent・画像差分・複数画像同時送信は追加していません。文書原本の `features/multi-screen-monitoring.md` に移行・API・変更ファイル・検証と制約を記録しています。
+複数画面監視の導入版は **7.1.0**。旧 Worker を停止してから更新してください。旧単一設定は既存 JSON の監視定義1件へ移行し、Worker 再起動時は全監視停止・対象再選択から始めます。本文は全監視合計約1 MiB、監視ごと200件まで。自動ロード／アンロード・AI停止・モデル排他・共有 Temp を維持します。設定UI・DB Migration・新規 NuGet・専用 Agent・画像差分・複数画像同時送信は追加していません。文書原本の `features/multi-screen-monitoring.md` に移行・API・変更ファイル・検証と制約を記録しています。
 
 ```powershell
 pwsh -File tests/Verify-MultiScreenMonitor.ps1 -Model gemma3:4b -SecondModel qwen3.5:4b

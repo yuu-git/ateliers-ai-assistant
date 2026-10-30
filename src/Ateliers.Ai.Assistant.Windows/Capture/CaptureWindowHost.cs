@@ -16,6 +16,7 @@ public sealed class CaptureWindowHost : IDisposable
     private readonly ConcurrentDictionary<Guid, CaptureScope> _scopes = new();
     private readonly SemaphoreSlim _pickerGate = new(1, 1);
     private nint _window;
+    private Branding.WindowIconSet? _windowIcons;
     private volatile bool _disposed, _locked;
     private bool _icon;
     private string _status = "停止中";
@@ -93,10 +94,12 @@ public sealed class CaptureWindowHost : IDisposable
     private void Run()
     {
         var initialized = RoInitialize(0) >= 0;
+        var name = "AteliersScreenHost" + Guid.NewGuid().ToString("N");
+        var instance = GetModuleHandle(null);
         try
         {
-            var name = "AteliersScreenHost" + Guid.NewGuid().ToString("N");
-            var definition = new WindowClass { Size = (uint)Marshal.SizeOf<WindowClass>(), Procedure = _procedure, Instance = GetModuleHandle(null), ClassName = name };
+            _windowIcons = new Branding.WindowIconSet();
+            var definition = new WindowClass { Size = (uint)Marshal.SizeOf<WindowClass>(), Procedure = _procedure, Instance = instance, ClassName = name, Icon = _windowIcons.Large, SmallIcon = _windowIcons.Small };
             if (RegisterClassEx(ref definition) == 0) throw new InvalidOperationException("画面監視のウィンドウを登録できません。");
             _window = CreateWindowEx(0x80, name, _selectionTitle, 0x00c80000, 100, 100, 540, 120, 0, 0, definition.Instance, 0);
             if (_window == 0) throw new InvalidOperationException("画面監視のウィンドウを作成できません。");
@@ -112,7 +115,15 @@ public sealed class CaptureWindowHost : IDisposable
             while (GetMessage(out var message, 0, 0, 0) > 0) { TranslateMessage(ref message); DispatchMessage(ref message); }
         }
         catch (Exception exception) { _ready.TrySetException(exception); }
-        finally { _window = 0; foreach (var scope in _scopes.Values) scope.Dispose(); if (initialized) RoUninitialize(); }
+        finally
+        {
+            if (_window != 0) DestroyWindow(_window);
+            _window = 0;
+            UnregisterClass(name, instance);
+            _windowIcons?.Dispose(); _windowIcons = null;
+            foreach (var scope in _scopes.Values) scope.Dispose();
+            if (initialized) RoUninitialize();
+        }
     }
     private nint ProcessMessage(nint window, uint message, nuint wParam, nint lParam)
     {
@@ -145,7 +156,7 @@ public sealed class CaptureWindowHost : IDisposable
         }
         return DefWindowProc(window, message, wParam, lParam);
     }
-    private NotifyIcon IconData() => new() { Size = (uint)Marshal.SizeOf<NotifyIcon>(), Window = _window, Id = 1, Flags = 7, Callback = 0x8002, Icon = LoadIcon(0, (nint)32512), Tip = "Ateliers 画面監視: " + _status, Info = "", InfoTitle = "" };
+    private NotifyIcon IconData() => new() { Size = (uint)Marshal.SizeOf<NotifyIcon>(), Window = _window, Id = 1, Flags = 7, Callback = 0x8002, Icon = _windowIcons!.Small, Tip = "Ateliers 画面監視: " + _status, Info = "", InfoTitle = "" };
     private sealed class WindowContext(CaptureWindowHost owner) : SynchronizationContext
     { public override void Post(SendOrPostCallback callback, object? state) { owner._jobs.Enqueue(() => callback(state)); PostMessage(owner._window, 0x8001, 0, 0); } }
     /// <inheritdoc/>
@@ -201,7 +212,7 @@ public sealed class CaptureWindowHost : IDisposable
     [DllImport("user32.dll")] private static extern bool DestroyMenu(nint menu);
     [DllImport("user32.dll")] private static extern bool GetCursorPos(out Point point);
     [DllImport("user32.dll", EntryPoint = "RegisterWindowMessageW", CharSet = CharSet.Unicode)] private static extern uint RegisterWindowMessage(string name);
-    [DllImport("user32.dll", EntryPoint = "LoadIconW")] private static extern nint LoadIcon(nint instance, nint name);
+    [DllImport("user32.dll", EntryPoint = "UnregisterClassW", CharSet = CharSet.Unicode)] private static extern bool UnregisterClass(string name, nint instance);
     [DllImport("shell32.dll", EntryPoint = "Shell_NotifyIconW", CharSet = CharSet.Unicode)] private static extern bool ShellNotifyIcon(uint action, ref NotifyIcon icon);
     [DllImport("wtsapi32.dll")] private static extern bool WTSRegisterSessionNotification(nint window, uint flags);
     [DllImport("wtsapi32.dll")] private static extern bool WTSUnRegisterSessionNotification(nint window);

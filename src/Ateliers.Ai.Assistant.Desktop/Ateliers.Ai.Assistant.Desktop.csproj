@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\..\build\BrandAssets.props" />
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <AssemblyTitle>Ateliers AI Assistant</AssemblyTitle>
     <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <RootNamespace>Ateliers.Ai.Assistant.Desktop</RootNamespace>

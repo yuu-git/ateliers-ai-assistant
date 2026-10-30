@@ -30,7 +30,7 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
     /// <summary>API 契約版。不一致のクライアントによる書込を拒否する。</summary>
     public const int Protocol = 1;
     /// <summary>ホストと UI が表示する実装版。</summary>
-    public const string ImplementationVersion = "7.1.0";
+    public static readonly string ImplementationVersion = typeof(WorkerCoordinator).Assembly.GetName().Version!.ToString(3);
     /// <summary>監視集合の予約により、要約の後片付けでも使用中モデルを保護する。</summary>
     public Func<string, bool>? IsModelReserved { get; set; }
     /// <summary>本 Worker がロードしたモデルを監視集合へ引き継ぐ。</summary>

@@ -118,6 +118,9 @@ public sealed partial class MainWindow : Window
         WebViewModel = webViewModel;
         WorkerViewModel = workerViewModel; LogsViewModel = logsViewModel;
         InitializeComponent();
+        AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "Branding", "app.ico"));
+        if (SettingsViewModel.Paths.DataEnvironment == Ateliers.Ai.Assistant.Application.Storage.AppDataEnvironment.Debug)
+            Title = "Ateliers AI Assistant (Debug)";
         DataStorage.Initialize(SettingsViewModel);
         _previousNavigation = ChatNavigationItem;
         ViewModel.ConfirmLeaveAsync = ConfirmLeaveAsync;
