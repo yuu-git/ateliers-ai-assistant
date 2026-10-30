@@ -40,6 +40,13 @@ public partial class App : Microsoft.UI.Xaml.Application
     {
 #if DEBUG
         var arguments = Environment.GetCommandLineArgs();
+        var screenIndex = Array.IndexOf(arguments, "--verify-screen-analysis");
+        if (screenIndex >= 0 && screenIndex + 1 < arguments.Length)
+        {
+            _window = Diagnostics.ScreenAnalysisVerification.Create(arguments[screenIndex + 1], screenIndex + 2 < arguments.Length ? arguments[screenIndex + 2] : null,
+                screenIndex + 3 < arguments.Length ? arguments[screenIndex + 3] : null);
+            _window.Activate(); return;
+        }
         var layoutIndex = Array.IndexOf(arguments, "--verify-ui-layout");
         if (layoutIndex >= 0 && layoutIndex + 2 < arguments.Length)
         {
@@ -116,6 +123,8 @@ public partial class App : Microsoft.UI.Xaml.Application
             else dispatcher.TryEnqueue(() => action());
         }
         var diagnostics = new FileDiagnosticLog(paths, "UI");
+        var temporaryFiles = new Ateliers.Ai.Assistant.Infrastructure.Storage.Temp.TempFileStore(paths, diagnostics);
+        _ = temporaryFiles.CleanupAsync();
         diagnostics.Write(AppLogCategory.System, AppLogLevel.Information, "ui.started", "Desktop を起動しました。");
         var store = new SqliteConversationStore(paths, diagnostics);
         var settings = new SettingsViewModel(paths, new JsonUserSettingsStore(paths, diagnostics), diagnostics,
@@ -128,9 +137,18 @@ public partial class App : Microsoft.UI.Xaml.Application
         {
             await Task.Yield(); var data = new DataPackage(); data.SetText(text); Clipboard.SetContent(data);
         }, () => new FixedDataFolderOpener(paths).OpenAsync(Ateliers.Ai.Assistant.Application.Storage.DataFolderKind.Logs));
-        _window = new MainWindow(new ChatViewModel(session, session, Dispatch, store, diagnostics),
+        var main = new MainWindow(new ChatViewModel(session, session, Dispatch, store, diagnostics),
             new ModelManagementViewModel(session, Dispatch), session, settings, web, worker, logs);
-        _window.Closed += (_, _) => { diagnostics.Write(AppLogCategory.System, AppLogLevel.Information, "ui.stopped", "Desktop を終了しました。Worker は継続します。"); _chatClient.Dispose(); workerHttp.Dispose(); };
+        var screen = new ScreenAnalysisViewModel(new Capture.WindowsScreenCaptureService(() => WinRT.Interop.WindowNative.GetWindowHandle(main)),
+            new Ateliers.Ai.Assistant.Application.ScreenAnalysis.ScreenAnalysisService(session, session, async token =>
+            {
+                var status = await api.GetStatusAsync(token).ConfigureAwait(false);
+                if (status.Configuration.AiPaused) throw new InvalidOperationException("AI は一時停止中です。再開してから解析してください。");
+            }), Dispatch);
+        main.InitializeScreenAnalysis(screen);
+        main.ReleaseTemporaryDataAsync = () => temporaryFiles.DisposeAsync().AsTask();
+        _window = main;
+        _window.Closed += (_, _) => { temporaryFiles.Dispose(); diagnostics.Write(AppLogCategory.System, AppLogLevel.Information, "ui.stopped", "Desktop を終了しました。Worker は継続します。"); _chatClient.Dispose(); workerHttp.Dispose(); };
         _window.Activate();
     }
 }

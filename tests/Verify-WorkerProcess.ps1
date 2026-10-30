@@ -35,7 +35,15 @@ function Expect-Status([int]$status, [hashtable]$parameters) {
     throw ('Expected HTTP ' + $status)
 }
 try {
+    $orphanOwner = Join-Path $testRoot ('l/Ateliers-Dev/Ai-Assistant.Debug/temp/v1/' + [Guid]::NewGuid().ToString('N'))
+    $orphanWork = Join-Path $orphanOwner 'work'
+    [IO.Directory]::CreateDirectory($orphanWork) | Out-Null
+    $orphanPayload = Join-Path $orphanWork ([Guid]::NewGuid().ToString('N') + '.part')
+    [IO.File]::WriteAllBytes($orphanPayload, [byte[]]@(1, 2, 3))
+    [IO.File]::WriteAllText((Join-Path $orphanOwner 'owner.lock'), '')
     Start-Worker
+    if (Test-Path -LiteralPath $orphanPayload) { throw 'Worker startup did not reclaim abandoned Temp' }
+    Write-Output 'PASS: actual Worker startup reclaims abandoned managed Temp before publishing API'
     $initial = Api GET status
     if ($initial.configuration.allowLoad -or $initial.configuration.allowUnload -or $initial.configuration.aiPaused) { throw 'Unsafe default resource policy' }
     $headers = @{ Authorization = ('Bearer ' + $endpoint.token) }

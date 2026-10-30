@@ -1,4 +1,20 @@
-# Ateliers AI Assistant — Phase 5: 情報源拡張基盤・GitHub Releases
+# Ateliers AI Assistant — Phase 6: 画面キャプチャ・Vision 解析 MVP
+
+Phase 6 は利用者の機能確認を受けて完了しました。続く横断改善として、アプリ専用 Temp の容量予約・使用中保護・起動／終了清掃と、将来の複数時点画像のメモリ保持・一括使用権を追加しています。現在の一枚キャプチャはファイルへ保存せず、監視・音声・複数画像送信は追加しません。採用方式・上限・テスト手順は文書リポジトリの `features/temp-management.md` を参照してください。
+
+ナビゲーションの「画面解析」から、対象選択 → 手動キャプチャ → プレビュー → プロンプト／モデル指定 → 解析を操作できます。Windows 標準 Picker と WGC を使い、長辺1536px以下の同じ PNG をプレビュー・Ollama へ渡します。画像・結果はメモリ内だけで保持し、定期取得・音声・履歴保存は行いません。
+
+AI 一時停止中、Worker 未接続・版不一致時は解析を禁止します。対象選択・キャプチャは利用でき、通常時は解析操作によるモデルのロードを許可します。既存のモデル排他と終了時解放、Markdown・ストリーミング・中止を再利用します。非対応モデルは API エラーを表示し、能力をモデル名から判定しません。
+
+開発検証と利用者による機能確認を区別して記録しています。実 WGC のウィンドウ／ディスプレイ取得、反復取得、検証用ウィンドウ画像に対する実 `gemma3:4b` の応答を開発環境で確認しました。導入時の確認手順と MSIX 等の環境別制約は文書リポジトリの `features/screen-monitoring.md` を参照してください。
+
+```powershell
+pwsh -File tests/Verify-ScreenAnalysis.ps1
+# 実モデルを使う場合だけ指定（検証用ウィンドウ画像のみ送信、隔離 Worker 使用）
+pwsh -File tests/Verify-ScreenAnalysis.ps1 -Model gemma3:4b
+```
+
+## Phase 5: 情報源拡張基盤・GitHub Releases
 
 既存の RSS / Atom に加え、公開 GitHub Releases を同じ Worker で巡回・要約・通知できます。「情報源設定」で種別を選び、GitHub は `owner/repository`（例: `microsoft/vscode`）を入力してください。認証なし、プレリリースは情報源ごとの初期 OFF、draft は除外します。
 

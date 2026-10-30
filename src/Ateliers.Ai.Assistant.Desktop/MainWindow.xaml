@@ -21,6 +21,7 @@
                         <SymbolIcon Symbol="Message" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem Content="画面解析" Tag="Screen"><NavigationViewItem.Icon><SymbolIcon Symbol="Camera"/></NavigationViewItem.Icon></NavigationViewItem>
                 <NavigationViewItemSeparator />
                 <NavigationViewItemHeader Content="システム・管理" />
                 <NavigationViewItem Content="モデル管理" Tag="Models">
@@ -33,6 +34,7 @@
             </NavigationView.MenuItems>
             <NavigationView.PaneFooter><controls:WorkerStatusView x:Name="GlobalWorkerStatus" Visibility="Collapsed"/></NavigationView.PaneFooter>
             <Grid x:Name="ContentRoot">
+            <controls:ScreenAnalysisView x:Name="ScreenPanel" Visibility="Collapsed"/>
             <Grid x:Name="ChatPanel" Padding="24" RowSpacing="16">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="210" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                 <Grid.RowDefinitions>

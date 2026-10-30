@@ -41,10 +41,14 @@ public static class WorkerHost
         var diagnostics = new FileDiagnosticLog(paths, "Worker");
         var connection = new WorkerConnectionFiles(paths);
         IDisposable? instance = null;
+        Ateliers.Ai.Assistant.Infrastructure.Storage.Temp.TempFileStore? temporaryFiles = null;
         try
         {
             instance = connection.TryEnterInstance();
             if (instance is null) return 0;
+            temporaryFiles = new(paths, diagnostics);
+            try { await temporaryFiles.CleanupAsync().WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false); }
+            catch (Exception exception) { diagnostics.Error("temp.startup", exception); }
             using var chatClient = new HttpClient { BaseAddress = new Uri("http://localhost:11434/"), Timeout = Timeout.InfiniteTimeSpan };
             using var feedClient = new HttpClient(RssFeedSource.CreateHandler()) { Timeout = Timeout.InfiniteTimeSpan };
             var ollama = new OllamaChatService(chatClient, keepAliveSeconds: 300);
@@ -119,7 +123,15 @@ public static class WorkerHost
             return 0;
         }
         catch (Exception exception) { diagnostics.Error("worker.start", exception); return 1; }
-        finally { instance?.Dispose(); }
+        finally
+        {
+            if (temporaryFiles is not null)
+            {
+                try { await temporaryFiles.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false); }
+                catch (Exception exception) { diagnostics.Error("temp.shutdown", exception); }
+            }
+            instance?.Dispose();
+        }
     }
     /// <summary>失敗時もホストを停止させず、短時間の無限再試行を避ける。</summary>
     private static async Task LoopAsync(Func<CancellationToken, Task> tick, FileDiagnosticLog log, CancellationToken token)

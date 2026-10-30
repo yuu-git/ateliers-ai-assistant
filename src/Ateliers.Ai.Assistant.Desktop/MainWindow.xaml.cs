@@ -28,6 +28,20 @@ public sealed partial class MainWindow : Window
     public WorkerViewModel? WorkerViewModel { get; }
     /// <summary>Worker 停止中も利用できる保存済みログ。</summary>
     public LogsViewModel? LogsViewModel { get; }
+    /// <summary>手動キャプチャと画像一枚の解析。通常ホストだけで構成する。</summary>
+    public ScreenAnalysisViewModel? ScreenViewModel { get; private set; }
+    /// <summary>Host が所有する一時データを通常終了前に解放する。清掃失敗で終了を妨げない。</summary>
+    public Func<Task>? ReleaseTemporaryDataAsync { get; set; }
+    /// <summary>ウィンドウ生成後に HWND を必要とするキャプチャサービスを接続する。</summary>
+    public void InitializeScreenAnalysis(ScreenAnalysisViewModel viewModel)
+    {
+        ScreenViewModel = viewModel; ScreenPanel.Initialize(viewModel);
+        if (WorkerViewModel is not null) WorkerViewModel.PropertyChanged += WorkerAvailabilityChanged;
+        WorkerAvailabilityChanged(this, new PropertyChangedEventArgs(null));
+        Closed += (_, _) => { if (WorkerViewModel is not null) WorkerViewModel.PropertyChanged -= WorkerAvailabilityChanged; ScreenPanel.Dispose(); viewModel.Dispose(); };
+    }
+    private void WorkerAvailabilityChanged(object? sender, PropertyChangedEventArgs args) =>
+        ScreenViewModel?.UpdateAvailability(WorkerViewModel is { Connected: true, ActualAiPaused: false });
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _workerTimer;
     private readonly IModelLifecycleService _lifecycle;
     private bool _closing;
@@ -146,11 +160,17 @@ public sealed partial class MainWindow : Window
             await Task.Yield(); // Closing の通知を抜けてから確認ダイアログを開く。
             MainNavigation.IsEnabled = false;
             if (!await ViewModel.PrepareToLeaveConversationAsync()) return;
+            if (ScreenViewModel is not null) await ScreenViewModel.StopAsync();
             if (WebViewModel is not null) await WebViewModel.StopAsync();
             await SettingsViewModel.FlushAsync().WaitAsync(TimeSpan.FromSeconds(5));
             _images.Dispose();
             ViewModel.Dispose();
             ModelViewModel.Dispose();
+            if (ReleaseTemporaryDataAsync is not null)
+            {
+                try { await ReleaseTemporaryDataAsync().WaitAsync(TimeSpan.FromSeconds(3)); }
+                catch (Exception exception) { ViewModel.ReportStorageFailure("temp.shutdown", exception); }
+            }
             // ウィンドウを残して非同期終了を待つ。Closed イベント内の await に依存しない。
             await _lifecycle.ShutdownAsync(TimeSpan.FromSeconds(5)).WaitAsync(TimeSpan.FromSeconds(6));
             _allowClose = true;
@@ -185,8 +205,10 @@ public sealed partial class MainWindow : Window
             SettingsPanel.Visibility = tag == "Settings" ? Visibility.Visible : Visibility.Collapsed;
             WebPanel.Visibility = tag == "Web" ? Visibility.Visible : Visibility.Collapsed;
             LogsPanel.Visibility = tag == "Logs" ? Visibility.Visible : Visibility.Collapsed;
+            ScreenPanel.Visibility = tag == "Screen" ? Visibility.Visible : Visibility.Collapsed;
             _previousNavigation = args.SelectedItem;
             if (tag == "Models") await ModelViewModel.RefreshCommand.ExecuteAsync();
+            if (tag == "Screen" && ScreenViewModel is not null && ScreenViewModel.Models.Count == 0) await ScreenViewModel.RefreshModelsCommand.ExecuteAsync();
             if (tag == "Web" && WebViewModel is not null)
             { if (WorkerViewModel is null) await WebViewModel.RefreshCommand.ExecuteAsync(); else await WorkerViewModel.PollAsync(); }
             if (tag == "Logs" && LogsViewModel is not null) await LogsViewModel.RefreshAsync();

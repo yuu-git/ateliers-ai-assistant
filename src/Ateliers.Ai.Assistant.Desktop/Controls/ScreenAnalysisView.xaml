@@ -1,0 +1,39 @@
+<UserControl x:Class="Ateliers.Ai.Assistant.Desktop.Controls.ScreenAnalysisView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="using:Ateliers.Ai.Assistant.Desktop.Controls">
+ <Grid Padding="24" RowSpacing="12" SizeChanged="LayoutChanged">
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+  <StackPanel Spacing="6"><TextBlock Text="画面解析" FontSize="28" FontWeight="SemiBold"/>
+   <TextBlock Text="対象を選択し、手動で一枚取得してから解析します。自動監視や保存は行いません。" TextWrapping="Wrap"/>
+  </StackPanel>
+  <StackPanel Grid.Row="1" Spacing="4"><TextBlock Text="{Binding Status}" TextWrapping="Wrap"/><ProgressBar IsIndeterminate="True" Visibility="{Binding IsBusy}"/>
+   <InfoBar IsOpen="{Binding HasError}" Message="{Binding Error}" Severity="Warning" IsClosable="False"/>
+  </StackPanel>
+  <Grid x:Name="Panes" Grid.Row="2" ColumnSpacing="16" RowSpacing="12">
+   <Grid.ColumnDefinitions><ColumnDefinition x:Name="InputColumn" Width="*"/><ColumnDefinition x:Name="ResultColumn" Width="1.2*"/></Grid.ColumnDefinitions>
+   <Grid.RowDefinitions><RowDefinition x:Name="InputRow" Height="*"/><RowDefinition x:Name="ResultRow" Height="0"/></Grid.RowDefinitions>
+   <ScrollViewer x:Name="InputPane" HorizontalScrollBarVisibility="Disabled">
+    <StackPanel Spacing="12" Padding="0,0,8,8">
+     <TextBlock Text="1. 対象を選択してキャプチャ" FontSize="18" FontWeight="SemiBold"/>
+     <Button Content="対象を選択" Command="{Binding PickCommand}"/>
+     <TextBlock Text="{Binding TargetName}" TextWrapping="Wrap"/>
+     <TextBlock Text="対象の種類は Windows の選択画面で確認してください。自分の画面やディスプレイには、このアプリ自身が映る場合があります。" TextWrapping="Wrap" FontSize="12" Opacity="0.7"/>
+     <Button Content="キャプチャ" Command="{Binding CaptureCommand}"/>
+     <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="6" Padding="8"><Image x:Name="PreviewImage" MaxHeight="320" Stretch="Uniform" AutomationProperties.Name="解析に送信する画像"/></Border>
+     <TextBlock Text="{Binding ImageInfo}" TextWrapping="Wrap" FontSize="12"/>
+     <Button Content="画像と結果を破棄" Command="{Binding ClearCommand}"/>
+     <TextBlock Text="2. プロンプトとモデルを指定" FontSize="18" FontWeight="SemiBold"/>
+     <TextBox Header="解析プロンプト" Text="{Binding Prompt, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="100" IsEnabled="{Binding CanEdit}"/>
+     <ComboBox Header="画像入力対応モデルを選択" ItemsSource="{Binding Models}" SelectedItem="{Binding SelectedModel, Mode=TwoWay}" HorizontalAlignment="Stretch" IsEnabled="{Binding CanEdit}"/>
+     <Button Content="モデル一覧を更新" Command="{Binding RefreshModelsCommand}"/>
+     <TextBlock Text="モデル能力は自動判定しません。非対応モデルのエラーは解析時に表示します。" TextWrapping="Wrap" FontSize="12"/>
+     <TextBlock Text="{Binding AiAvailability}" TextWrapping="Wrap"/>
+     <StackPanel Orientation="Horizontal" Spacing="8"><Button Content="解析" Command="{Binding AnalyzeCommand}" Style="{StaticResource AccentButtonStyle}"/><Button Content="中止" Command="{Binding CancelCommand}"/></StackPanel>
+    </StackPanel>
+   </ScrollViewer>
+   <Grid x:Name="ResultPane" Grid.Column="1" RowSpacing="8"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <TextBlock Text="3. 解析結果" FontSize="18" FontWeight="SemiBold"/><local:ChatTranscriptView x:Name="Transcript" Grid.Row="1" ItemsSource="{Binding Results}"/>
+   </Grid>
+  </Grid>
+ </Grid>
+</UserControl>

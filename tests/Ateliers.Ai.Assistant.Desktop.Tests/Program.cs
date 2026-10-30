@@ -1,5 +1,11 @@
 using Ateliers.Ai.Assistant.Desktop.Tests;
 
+if (args.Length == 3 && args[0] == "--temp-owner")
+{
+    await TempManagementTests.RunOwner(args[1], args[2]);
+    return;
+}
+
 if (args.Length == 2 && args[0] == "--github-repository")
 {
     await GitHubReleaseTests.LiveFetch(args[1]);
@@ -12,6 +18,15 @@ if (args.Length == 2 && args[0] == "--ollama-model")
 }
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("Temp 時系列画像・近傍選択・一括使用権・メモリ上限", TempManagementTests.MemoryTimeAndBatch),
+    ("Temp 世代・期限・全体容量・使用中保護", TempManagementTests.DiskQuotaAndLeases),
+    ("Temp 原子的確定・所有者・UI終了・環境分離", TempManagementTests.AtomicityFailureAndSeparation),
+    ("Temp 破損・消失・一括取得失敗・清掃障害", TempManagementTests.CorruptionAndCleanupErrors),
+    ("Temp 範囲外・再解析ポイント・パス差し替え防止", TempManagementTests.ReparseAndRangeSafety),
+    ("Temp 実プロセスの使用中・異常終了・未完了回収", TempManagementTests.ProcessOwnershipAndCrash),
+    ("手動キャプチャ・同一画像送信・結果分離・旧更新破棄", ScreenAnalysisTests.WorkflowAndIsolation),
+    ("画面解析の失敗・中止・対象消失・終了待機", ScreenAnalysisTests.FailuresAndCancellation),
+    ("解析の排他取得後の AI 停止再確認", ScreenAnalysisTests.GuardWithinLease),
     ("GitHub API 契約・対象選別・入力・識別", GitHubReleaseTests.FetchContractAndSelection),
     ("GitHub HTTP 障害・制限・JSON・中止・サイズ", GitHubReleaseTests.FailuresAndBounds),
     ("GitHub リダイレクト制限・空リリース", GitHubReleaseTests.RedirectAndEmpty),
@@ -93,9 +108,10 @@ var tests = new (string Name, Func<Task> Run)[]
     ("HTTP エラー・接続拒否", ServiceTests.ConnectionErrors),
     ("読み取り中のキャンセルとタイムアウト", ServiceTests.CancellationAndTimeout),
 };
-foreach (var test in tests)
+var selectedTests = args.SequenceEqual(new[] { "--temp-tests" }) ? tests.Where(test => test.Name.StartsWith("Temp ", StringComparison.Ordinal)).ToArray() : tests;
+foreach (var test in selectedTests)
 {
     await test.Run();
     Console.WriteLine($"PASS: {test.Name}");
 }
-Console.WriteLine($"{tests.Length} checks passed.");
+Console.WriteLine($"{selectedTests.Length} checks passed.");
