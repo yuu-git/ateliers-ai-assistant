@@ -21,24 +21,48 @@ internal static class NotificationViewModelTests
         using var vm = new WebMonitoringViewModel(new Operations(), f.Store, session, session, settings, f.Log, action => action(), (_, _) => Task.CompletedTask, metadata, clock);
         vm.UpdateSources(f.Sources.Take(2).Select((url, index) => new WorkerSourceViewModel(new(Guid.NewGuid(), "Source " + index, url), null)).ToArray());
         await vm.RefreshFeedAsync();
-        Check(vm.NotificationGroups.Select(group => group.Label).SequenceEqual(new[] { "今日", "昨日" }) && vm.TotalUnread == 2, "local JST date groups use acquisition time, not later summary/notification time");
+        Check(vm.NotificationGroups.Select(group => group.Label).SequenceEqual(new[] { "今日", "昨日" }) && vm.TotalUnread == 2, "local acquisition groups");
         var first = vm.VisibleNotifications[0]; var second = vm.VisibleNotifications[1];
         vm.SelectedNotification = first; await vm.RefreshFeedAsync();
-        Check(metadata.ReadRequests == 0 && first.IsUnread, "initial or programmatic selection and polling do not mark read");
+        Check(metadata.ReadRequests == 0 && first.IsUnread, "programmatic selection does not arm read");
         var documentChanges = 0; vm.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(vm.SelectedDocument)) documentChanges++; };
-        await vm.OpenArticleAsync(first);
-        Check(metadata.ReadRequests == 1 && !first.IsUnread && vm.TotalUnread == 1 && documentChanges == 0, "explicit open persists read without replacing Markdown");
-        await vm.ToggleBookmarkAsync(second);
-        Check(second.IsUnread && second.Item.IsBookmarked && ReferenceEquals(vm.SelectedNotification, first) && metadata.ReadRequests == 1, "list bookmark does not select or read another article");
-        vm.TagInput = "調査"; await vm.AddTagCommand.ExecuteAsync();
-        Check(first.TagItems.Count == 1 && !first.IsUnread && documentChanges == 0, "tag edit updates metadata without Markdown reset");
-        await vm.ToggleReadCommand.ExecuteAsync(); Check(first.IsUnread && vm.TotalUnread == 2, "explicit return to unread");
-        vm.FilterIndex = 1; await Task.Delay(100); await vm.RefreshFeedAsync();
-        await vm.OpenArticleAsync(first);
-        await WaitUntil(() => vm.TotalUnread == 1 && vm.VisibleNotifications.Count == 1);
-        Check(ReferenceEquals(vm.SelectedNotification, first) && !vm.VisibleNotifications.Contains(first), "opening unread item keeps its detail after it leaves unread results");
-        metadata.FailBookmark = true; await vm.ToggleBookmarkAsync(first);
-        Check(!first.Item.IsBookmarked && vm.HasError && ReferenceEquals(vm.SelectedNotification, first), "failed mutation does not predict success or discard selected detail");
+        await vm.OpenArticleAsync(first); await vm.RefreshFeedAsync();
+        Check(metadata.ReadRequests == 0 && first.IsUnread && vm.TotalUnread == 2 && documentChanges == 0, "open and polling preserve unread and detail");
+        await vm.ToggleBookmarkAsync(second); vm.TagInput = "調査"; await vm.AddTagCommand.ExecuteAsync();
+        Check(first.IsUnread && second.IsUnread && second.Item.IsBookmarked && ReferenceEquals(first, vm.SelectedNotification), "bookmark/tag do not end reading");
+        await vm.OpenArticleAsync(second);
+        Check(!first.IsUnread && second.IsUnread && metadata.ReadRequests == 1 && vm.TotalUnread == 1, "switch marks previous only");
+        await vm.EndReadingAsync();
+        Check(!second.IsUnread && vm.TotalUnread == 0 && vm.SelectedNotification is null, "closing marks opened article");
+        vm.SelectedNotification = first; await vm.ToggleReadCommand.ExecuteAsync();
+        vm.FilterIndex = 1; await vm.RefreshFeedAsync(); await WaitUntil(() => vm.VisibleNotifications.Count == 1);
+        await vm.OpenArticleAsync(first); await vm.RefreshFeedAsync();
+        Check(first.IsUnread && vm.TotalUnread == 1 && ReferenceEquals(first, vm.SelectedNotification) && vm.SelectedDocument is not null, "unread-only detail remains available during reading");
+        await vm.ToggleReadCommand.ExecuteAsync();
+        Check(!first.IsUnread && vm.VisibleNotifications.Count == 0 && ReferenceEquals(first, vm.SelectedNotification), "explicit read may leave filter but must keep detail");
+        await vm.ToggleReadCommand.ExecuteAsync();
+        var requests = metadata.ReadRequests; await vm.EndReadingAsync();
+        Check(first.IsUnread && vm.TotalUnread == 1 && metadata.ReadRequests == requests, "explicit return-unread wins on deselection");
+        vm.SelectedNotification = first; metadata.FailBookmark = true; await vm.ToggleBookmarkAsync(first);
+        Check(!first.Item.IsBookmarked && vm.HasError && ReferenceEquals(vm.SelectedNotification, first), "failed metadata remains unchanged");
+    }
+    public static async Task DeferredReadQueueAndFailure()
+    {
+        using var f = new NotificationManagementTests.Fixture(); await f.SeedAsync(4, 4);
+        var metadata = new MetadataProbe(f.Store); var session = new ChatModelSession(new TestChatService(), new TestModelControl());
+        var settings = new SettingsViewModel(f.Paths, new JsonUserSettingsStore(f.Paths, f.Log), f.Log, _ => Task.CompletedTask);
+        using var vm = new WebMonitoringViewModel(new Operations(), f.Store, session, session, settings, f.Log, a => a(), (_, _) => Task.CompletedTask, metadata);
+        await vm.RefreshFeedAsync(); var rows = vm.Notifications.ToArray();
+        await vm.OpenArticleAsync(rows[0]); metadata.ReadGate = new();
+        var switching = vm.OpenArticleAsync(rows[1]); await WaitUntil(() => metadata.ReadRequests == 1);
+        var next = vm.OpenArticleAsync(rows[2]); var ending = vm.EndReadingAsync();
+        metadata.ReadGate.SetResult(); await Task.WhenAll(switching, next, ending);
+        Check(rows.Take(3).All(row => !row.IsUnread) && rows[3].IsUnread && vm.TotalUnread == 1 && metadata.ReadRequests == 3, "rapid switches drain every departed read once");
+        metadata.FailRead = true; await vm.OpenArticleAsync(rows[3]); await vm.EndReadingAsync();
+        Check(rows[3].IsUnread && vm.TotalUnread == 1 && vm.HasError, "failed automatic read remains unread and reports error");
+        metadata.FailRead = false; await vm.OpenArticleAsync(rows[3]); vm.SelectedFeedSource = vm.SourceChoices[0];
+        await vm.StopAsync();
+        Check(!rows[3].IsUnread && vm.TotalUnread == 0, "normal shutdown drains current reading");
     }
     public static async Task GlobalWorkerControls()
     {
@@ -78,8 +102,11 @@ internal static class NotificationViewModelTests
     {
         public int ReadRequests;
         public bool FailBookmark;
+        public bool FailRead;
+        public TaskCompletionSource? ReadGate;
         public Task<NotificationPage> QueryAsync(NotificationQuery query, CancellationToken token = default) => inner.QueryAsync(query, token);
-        public Task<ArticleMetadata> SetReadAsync(SetArticleReadRequest request, CancellationToken token = default) { ReadRequests++; return inner.SetReadAsync(request, token); }
+        public async Task<ArticleMetadata> SetReadAsync(SetArticleReadRequest request, CancellationToken token = default)
+        { ReadRequests++; if (ReadGate is { } gate) await gate.Task; if (FailRead) throw new WebMonitoringException("検証用の既読保存失敗"); return await inner.SetReadAsync(request, token); }
         public Task<ArticleMetadata> SetBookmarkAsync(SetArticleBookmarkRequest request, CancellationToken token = default) => FailBookmark ? throw new WebMonitoringException("検証用の通信失敗") : inner.SetBookmarkAsync(request, token);
         public Task<ArticleMetadata> AddTagAsync(AddArticleTagRequest request, CancellationToken token = default) => inner.AddTagAsync(request, token);
         public Task<ArticleMetadata> RemoveTagAsync(RemoveArticleTagRequest request, CancellationToken token = default) => inner.RemoveTagAsync(request, token);

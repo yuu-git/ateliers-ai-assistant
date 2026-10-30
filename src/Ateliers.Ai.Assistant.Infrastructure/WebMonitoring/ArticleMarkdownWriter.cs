@@ -22,7 +22,9 @@ public sealed class ArticleMarkdownWriter(IApplicationPaths paths) : IArticleMar
             var content = $"# {OneLine(article.Article.Title)}\n\n" +
                 $"- 元 URL: {OneLine(article.Article.Url ?? "なし")}\n- 公開日時: {article.Article.PublishedAt?.ToString("O") ?? "不明"}\n" +
                 $"- 取得日時: {article.FetchedAt:O}\n- 使用モデル: {OneLine(article.Model ?? "不明")}\n" +
-                $"- 情報源: {OneLine(article.Article.InputScope)}\n- フィード: {OneLine(article.Article.Source)}\n\n## AI 要約\n\n{article.Summary}\n";
+                $"- 情報源: {OneLine(article.Article.InputScope)}\n- {(article.Article.GitHubRelease is null ? "フィード" : "取得元")}: {OneLine(article.Article.Source)}\n\n## AI 要約\n\n{article.Summary}\n";
+            if (article.Article.GitHubRelease is { } release)
+                content += $"\n\n## リリースの取得情報\n\n- リポジトリ: {OneLine(release.Repository)}\n- Release ID: {release.ReleaseId}\n- リリースタグ: {OneLine(release.TagName)}\n- プレリリース: {release.Prerelease}\n";
             await File.WriteAllTextAsync(temporary, content, new UTF8Encoding(false), token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             File.Move(temporary, target, true);

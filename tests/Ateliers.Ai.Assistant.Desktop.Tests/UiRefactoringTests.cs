@@ -53,7 +53,7 @@ internal static class UiRefactoringTests
         await vm.PollAsync();
         Check(ReferenceEquals(vm.SelectedSource, selected) && vm.Name == "情報源の未保存入力" && vm.Model == "AI の未保存入力" && vm.HasAiEdits && vm.HasSourceEdits, "poll preserves both drafts and source identity");
         api.Fetching = true; await vm.PollAsync();
-        Check(vm.StatusSummary.Contains("RSS: 巡回中") && vm.StatusSummary.Contains("AI:"), "RSS progress and AI state are separate");
+        Check(vm.StatusSummary.Contains("取得: 巡回中") && vm.StatusSummary.Contains("AI:"), "source acquisition progress and AI state are separate");
         await vm.SaveOptionsCommand.ExecuteAsync();
         Check(api.Configuration.Sources[0].Name == "Source A" && vm.Name == "情報源の未保存入力" && vm.HasSourceEdits && !vm.HasAiEdits, "AI save does not save or discard source draft");
         vm.Model = "次の AI 入力";

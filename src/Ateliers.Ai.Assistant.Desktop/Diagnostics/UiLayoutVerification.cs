@@ -59,21 +59,24 @@ internal static class UiLayoutVerification
                 view.SelectViewForVerification(1); await Task.Delay(100);
                 if (!view.ViewSelectionForVerification(1) || !ReferenceEquals(source, web.SelectedFeedSource)) throw new InvalidOperationException("Wide view navigation did not preserve source or sync selection");
                 view.SelectViewForVerification(0); await Task.Delay(100);
+                view.SelectForVerification(0);
                 await view.CaptureManagerForVerificationAsync(() => Capture(root, "source-management"));
                 if (!view.LayoutForVerification.Sources || view.LayoutForVerification.List < 250 || view.LayoutForVerification.Detail < 300) throw new InvalidOperationException("Wide layout invalid");
                 report.Add("PASS: native feed selection, article URL separation, safe Markdown, C# highlighting and polling scroll preservation");
                 view.HistoryForVerification(true); await Capture(root, "history-wide"); view.HistoryForVerification(false);
+                view.SelectForVerification(0); await Task.Delay(200);
                 window.AppWindow.Resize(new(1150, 950)); await Task.Delay(300); await Capture(root, "notifications-medium");
                 if (view.LayoutForVerification.Sources || view.LayoutForVerification.Back) throw new InvalidOperationException("Medium layout invalid");
                 window.AppWindow.Resize(new(760, 950)); await Task.Delay(300); await Capture(root, "notifications-narrow-detail");
                 if (!view.LayoutForVerification.Back) throw new InvalidOperationException("Narrow back button missing");
                 view.BackForVerification(); await Task.Delay(150); await Capture(root, "notifications-narrow-list");
-                if (!ReferenceEquals(selected, web.SelectedNotification)) throw new InvalidOperationException("Back discarded article selection");
+                if (web.SelectedNotification is not null) throw new InvalidOperationException("Back did not end article selection");
                 window.AppWindow.Resize(new(480, 800)); await Task.Delay(300); await Capture(root, "notifications-small");
                 view.SelectViewForVerification(2); await Task.Delay(100);
                 if (!view.ViewSelectionForVerification(2) || !ReferenceEquals(source, web.SelectedFeedSource)) throw new InvalidOperationException("Compact view navigation did not preserve source or sync selection");
                 view.SelectViewForVerification(0); await Task.Delay(100);
                 window.AppWindow.Resize(new(1600, 1040)); await Task.Delay(250);
+                view.SelectForVerification(0); await WaitDom(preview, "document.querySelector('h1')?.textContent === 'UI 改修の検証'");
                 if (await preview.CoreForVerification.ExecuteScriptAsync("window.scrollY") != "0") throw new InvalidOperationException("Resize changed Markdown position");
                 report.Add("PASS: wide/medium/narrow layouts, history toggle, list/detail back and article preservation");
                 window.NavigateForVerification("Settings"); await Task.Delay(300);
@@ -89,6 +92,7 @@ internal static class UiLayoutVerification
                 if (opened != 4) throw new InvalidOperationException("Fixed folder commands missing");
                 report.Add("PASS: native settings edit, unsaved indication, three categories, narrow form and four fixed-folder commands");
                 foreach (var tag in new[] { "Chat", "Models", "Logs", "Settings", "Web" }) { window.NavigateForVerification(tag); await Task.Delay(100); }
+                view.SelectForVerification(0);
                 var deletion = web.DeleteArticlesCommand.ExecuteAsync();
                 await Capture(root, "bulk-delete"); await deletion;
                 if (web.Notifications.Count != 7 || web.VisibleNotifications.Count != 3 || !ReferenceEquals(selected, web.SelectedNotification))

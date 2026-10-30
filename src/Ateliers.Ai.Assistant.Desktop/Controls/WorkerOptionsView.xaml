@@ -27,7 +27,7 @@
     <TextBlock Text="上の即時操作は一時停止だけを反映します。以下の編集中のモデル・許可設定は保存しません。" TextWrapping="Wrap" FontSize="12"/>
     <ComboBox x:Name="SummaryModelInput" Header="要約モデル（チャットとは独立）" IsEditable="True" ItemsSource="{Binding Models}" Text="{Binding Model, Mode=TwoWay}" HorizontalAlignment="Stretch"/>
     <CheckBox IsChecked="{Binding AiPaused, Mode=TwoWay}"><TextBlock Text="バックグラウンド AI 処理を一時停止" TextWrapping="Wrap"/></CheckBox>
-    <TextBlock Text="一時停止も保存で反映します。実行中の要約はキャンセルしますが、RSS の取得は継続します。再開後に保存済みの待機記事を処理します。" TextWrapping="Wrap" Opacity="0.7"/>
+    <TextBlock Text="一時停止も保存で反映します。実行中の要約はキャンセルしますが、情報取得は継続します。再開後に保存済みの待機記事を処理します。" TextWrapping="Wrap" Opacity="0.7"/>
     <CheckBox IsChecked="{Binding AllowLoad, Mode=TwoWay}"><TextBlock Text="モデルの自動ロードを許可（初期 OFF）" TextWrapping="Wrap"/></CheckBox>
     <TextBlock Text="OFF では未ロードのモデルに要約要求を送りません。ON は GPU・メモリを使用し得ます。Ollama サーバー自体は起動しません。" TextWrapping="Wrap" Opacity="0.7"/>
     <CheckBox IsChecked="{Binding AllowUnload, Mode=TwoWay}"><TextBlock Text="モデルの自動アンロードを許可（初期 OFF）" TextWrapping="Wrap"/></CheckBox>

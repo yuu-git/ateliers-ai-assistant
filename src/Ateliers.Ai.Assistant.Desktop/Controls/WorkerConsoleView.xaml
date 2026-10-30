@@ -12,7 +12,10 @@
    <Expander x:Name="SourceEditor" Header="情報源を編集" IsExpanded="True" HorizontalAlignment="Stretch">
     <StackPanel Spacing="10">
      <TextBox x:Name="SourceName" Header="情報源名" Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MaxLength="120"/>
-     <TextBox x:Name="SourceUrl" Header="公開 RSS / Atom URL" Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MaxLength="4096"/>
+     <ComboBox x:Name="SourceKind" Header="情報源の種別" SelectedIndex="{Binding KindIndex, Mode=TwoWay}" HorizontalAlignment="Stretch"><ComboBoxItem Content="RSS / Atom"/><ComboBoxItem Content="GitHub Releases"/></ComboBox>
+     <TextBox x:Name="SourceUrl" Header="{Binding SourceInputHeader}" Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" MaxLength="4096"/>
+     <TextBlock Text="{Binding SourceInputHelp}" TextWrapping="Wrap" FontSize="12"/>
+     <CheckBox x:Name="SourcePrereleases" Content="プレリリースを含める（GitHub のみ・draft は除外）" IsChecked="{Binding IncludePrereleases, Mode=TwoWay}" IsEnabled="{Binding IsGitHubSource}"/>
      <NumberBox x:Name="SourceInterval" Header="巡回周期（分・5〜10080、初期60分）" Value="{Binding IntervalMinutes, Mode=TwoWay}" Minimum="5" Maximum="10080" SpinButtonPlacementMode="Compact"/>
      <CheckBox x:Name="SourceAutomatic" Content="この情報源の自動取得を有効にする" IsChecked="{Binding Automatic, Mode=TwoWay}"/>
      <TextBlock Text="{Binding SourceEditState}" TextWrapping="Wrap"/>

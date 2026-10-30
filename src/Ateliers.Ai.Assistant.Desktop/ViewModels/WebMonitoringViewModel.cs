@@ -74,7 +74,7 @@ public sealed partial class WebMonitoringViewModel : ObservableObject, IDisposab
     public FeedSourceChoice? SelectedFeedSource
     {
         get => _selectedSource;
-        set { if (value is not null && SetProperty(ref _selectedSource, value)) { _openedArticleId = null; ApplyFilter(); OnPropertyChanged(nameof(FeedHeading)); QueryChanged(); } }
+        set { if (value is not null && !ReferenceEquals(value, _selectedSource)) { EndReadingSelection(); SetProperty(ref _selectedSource, value); ApplyFilter(); OnPropertyChanged(nameof(FeedHeading)); QueryChanged(); } }
     }
     /// <summary>現在の閲覧対象と予定。</summary>
     public string FeedHeading => SelectedFeedSource?.Title ?? "すべての通知";
@@ -97,6 +97,7 @@ public sealed partial class WebMonitoringViewModel : ObservableObject, IDisposab
         Synchronize(SourceChoices, choices);
         if (!SourceChoices.Contains(_selectedSource!)) _selectedSource = SourceChoices[0];
         OnPropertyChanged(nameof(SelectedFeedSource)); OnPropertyChanged(nameof(FeedHeading));
+        if (previousUrl != SelectedFeedSource?.Url) EndReadingSelection();
         ApplyFilter();
         ApplyUnreadCounts();
         if (previousUrl != SelectedFeedSource?.Url) QueryChanged();
@@ -129,7 +130,14 @@ public sealed partial class WebMonitoringViewModel : ObservableObject, IDisposab
     public WebNotificationViewModel? SelectedNotification
     {
         get => _selected;
-        set { if (SetProperty(ref _selected, value)) { OnPropertyChanged(nameof(SelectedDocument)); NotifyCommands(); NotifyMetadataCommands(); } }
+        set
+        {
+            if (ReferenceEquals(_selected, value)) return;
+            if (_selected?.Item.Notification.Id != value?.Item.Notification.Id) FinishReading();
+            if (_selected is { } previous) previous.IsCurrent = false;
+            if (value is not null) value.IsCurrent = true;
+            if (SetProperty(ref _selected, value)) { OnPropertyChanged(nameof(SelectedDocument)); NotifyCommands(); NotifyMetadataCommands(); }
+        }
     }
     /// <summary>選択した通知の Markdown 全文。変換・安全化は表示コントロールが担当する。</summary>
     public MessageSnapshot? SelectedDocument => SelectedNotification is { } selected ? new(selected.Item.Notification.Id.ToString("N"),
@@ -193,14 +201,19 @@ public sealed partial class WebMonitoringViewModel : ObservableObject, IDisposab
     public async Task RefreshFeedAsync()
     {
         if (_disposed || IsRunning) return;
-        if (_refreshing) { _queryPending = true; return; }
-        do
+        if (_refreshing) { _queryPending = true; if (_refreshIdle is { } pending) await pending.Task; return; }
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously); _refreshIdle = completed;
+        try
         {
-            _queryPending = false; _refreshing = true;
-            try { await RefreshResultsAsync(); ErrorMessage = ""; }
-            catch (Exception exception) { Failure(exception); }
-            finally { _refreshing = false; OnPropertyChanged(nameof(CanEdit)); NotifyCommands(); }
-        } while (_queryPending && !_disposed && !IsRunning);
+            do
+            {
+                _queryPending = false; _refreshing = true;
+                try { await RefreshResultsAsync(); ErrorMessage = ""; }
+                catch (Exception exception) { Failure(exception); }
+                finally { _refreshing = false; OnPropertyChanged(nameof(CanEdit)); NotifyCommands(); }
+            } while (_queryPending && !_disposed && !IsRunning);
+        }
+        finally { _refreshIdle = null; completed.TrySetResult(); }
     }
     /// <summary>原文を含めず失敗を通知する。</summary>
     private void Failure(Exception exception)
@@ -298,6 +311,10 @@ public sealed partial class WebMonitoringViewModel : ObservableObject, IDisposab
         _runCancellation?.Cancel();
         try { await _running.WaitAsync(TimeSpan.FromSeconds(8)); }
         catch (Exception exception) { _diagnostics.Error("web.close", exception); }
+        try { await EndReadingAsync().WaitAsync(TimeSpan.FromSeconds(8)); }
+        catch (Exception exception) { _diagnostics.Error("web.read.close", exception); }
+        try { if (_refreshIdle is { } refresh) await refresh.Task.WaitAsync(TimeSpan.FromSeconds(8)); }
+        catch (Exception exception) { _diagnostics.Error("web.refresh.close", exception); }
     }
     /// <summary>モデル状態の変更を UI スレッドへ移す。</summary>
     private void ModelStateChanged(object? sender, EventArgs args) => _dispatch(() => { if (!_disposed) { OnPropertyChanged(nameof(CanEdit)); NotifyCommands(); } });
@@ -330,6 +347,9 @@ public sealed record WebRunViewModel(CollectionRun Run)
 #endif
 public sealed partial class WebNotificationViewModel(ArticleNotification item) : ObservableObject
 {
+    private bool _isCurrent;
+    /// <summary>詳細に表示中の記事。既読状態やキーボードフォーカスとは独立した一覧の強調表示に使う。</summary>
+    public bool IsCurrent { get => _isCurrent; internal set => SetProperty(ref _isCurrent, value); }
     private string _sourceName = "";
     /// <summary>記事 URL と取得元を分離した永続通知。</summary>
     public ArticleNotification Item { get; private set; } = item;
@@ -370,8 +390,9 @@ public sealed partial class WebNotificationViewModel(ArticleNotification item) :
     /// <summary>公開日時・元 URL・取得方法と、現在のモデル選択とは独立した実際の要約モデル。</summary>
     public string Detail => (Item.FetchedAt is { } fetched ? $"初回取得 {fetched.ToLocalTime():g}\n" : "") + (Item.PublishedAt is { } published ? $"公開 {published.ToLocalTime():g}" :
         $"公開日時不明・通知 {Item.Notification.OccurredAt.ToLocalTime():g}") + $" / {Item.SourceUrl ?? "URL なし"}" +
-        $"\n取得: RSS / Atom / 要約モデル: {(string.IsNullOrWhiteSpace(Item.SummaryModel) ? "不明（記録なし）" : Item.SummaryModel)}" +
-        $"\n取得元フィード: {Item.FeedSourceUrl ?? "不明（記録なし）"}";
+        $"\n取得: {(Item.GitHubRelease is null ? "RSS / Atom" : "GitHub Releases")} / 要約モデル: {(string.IsNullOrWhiteSpace(Item.SummaryModel) ? "不明（記録なし）" : Item.SummaryModel)}" +
+        $"\n取得元: {Item.FeedSourceUrl ?? "不明（記録なし）"}" +
+        (Item.GitHubRelease is { } release ? $"\nリポジトリ: {release.Repository} / Release ID: {release.ReleaseId} / リリースタグ: {release.TagName} / {(release.Prerelease ? "プレリリース" : "正式版")}" : "");
 }
 
 /// <summary>閲覧用の情報源。更新で同じオブジェクトを使い、選択を失わない。</summary>

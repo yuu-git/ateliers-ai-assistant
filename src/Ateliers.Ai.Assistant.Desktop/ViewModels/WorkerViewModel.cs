@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Ateliers.Ai.Assistant.Application.Chat;
 using Ateliers.Ai.Assistant.Application.Storage;
 using Ateliers.Ai.Assistant.Application.Worker;
+using Ateliers.Ai.Assistant.Application.WebMonitoring;
 
 namespace Ateliers.Ai.Assistant.Desktop.ViewModels;
 
@@ -45,7 +46,7 @@ public sealed partial class WorkerViewModel : ObservableObject, IDisposable
         RefreshCommand = new(RefreshAsync, () => !_busy);
         StartCommand = new(() => ActionAsync(StartWorkerAsync), () => CanStartWorker);
         StopCommand = new(() => ActionAsync(StopWorkerAsync), () => CanStopWorker);
-        NewSourceCommand = new(() => { SelectedSource = null; Name = ""; Url = ""; IntervalMinutes = 60; Automatic = false; }, () => !_busy);
+        NewSourceCommand = new(() => { SelectedSource = null; Name = ""; Url = ""; IntervalMinutes = 60; Automatic = false; KindIndex = 0; IncludePrereleases = false; }, () => !_busy);
         SaveSourceCommand = new(() => ActionAsync(SaveSourceAsync), () => Connected && !_busy);
         DeleteSourceCommand = new(() => ActionAsync(DeleteSourceAsync), () => Connected && !_busy && SelectedSource is not null);
         FetchCommand = new(() => ActionAsync(async () => { if (SelectedSource is { } source) await _client.FetchAsync(new(source.Id, Guid.NewGuid()), _lifetime.Token); await RefreshCoreAsync(false); }), () => Connected && !_busy && SelectedSource is not null);
@@ -59,7 +60,7 @@ public sealed partial class WorkerViewModel : ObservableObject, IDisposable
     /// <summary>Ollama で取得した要約モデル候補。</summary>
     public ObservableCollection<string> Models { get; } = [];
     /// <summary>編集・手動取得の対象。</summary>
-    public WorkerSourceViewModel? SelectedSource { get => _selected; set { if (SetProperty(ref _selected, value)) { if (value is not null) { Name = value.Source.Name; Url = value.Source.Url; IntervalMinutes = value.Source.IntervalMinutes; Automatic = value.Source.Automatic; } CommandsChanged(); } } }
+    public WorkerSourceViewModel? SelectedSource { get => _selected; set { if (SetProperty(ref _selected, value)) { if (value is not null) { ApplySource(value.Source); } CommandsChanged(); } } }
     /// <summary>情報源名。</summary>
     public string Name { get => _name; set { if (SetProperty(ref _name, value)) EditStateChanged(); } }
     /// <summary>HTTP(S) フィード URL。</summary>
@@ -80,8 +81,8 @@ public sealed partial class WorkerViewModel : ObservableObject, IDisposable
     public bool HasAiEdits => !_loadedSettings ? _aiEdited : Model != (_configuration.SummaryModel ?? "") || AllowLoad != _configuration.AllowLoad || AllowUnload != _configuration.AllowUnload || AiPaused != _configuration.AiPaused;
     /// <summary>情報源の編集値が未保存か。</summary>
     public bool HasSourceEdits => SelectedSource is { } source ?
-        Name != source.Source.Name || Url != source.Source.Url || IntervalMinutes != source.Source.IntervalMinutes || Automatic != source.Source.Automatic :
-        Name.Length != 0 || Url.Length != 0 || Automatic || IntervalMinutes != 60;
+        Name != source.Source.Name || Url != SourceInput(source.Source) || IntervalMinutes != source.Source.IntervalMinutes || Automatic != source.Source.Automatic || KindIndex != (int)source.Source.Kind || IncludePrereleases != source.Source.IncludePrereleases :
+        Name.Length != 0 || Url.Length != 0 || Automatic || IntervalMinutes != 60 || KindIndex != 0 || IncludePrereleases;
     /// <summary>保存単位と編集中の状態。</summary>
     public string AiEditState => HasAiEdits ? "未保存の変更があります。AI・モデル設定の保存で反映します。" : _saveMessage.Length != 0 ? _saveMessage : "保存済みの AI・モデル設定です。";
     /// <summary>情報源設定の保存状態。</summary>
@@ -93,7 +94,7 @@ public sealed partial class WorkerViewModel : ObservableObject, IDisposable
     /// <summary>保存済みの未処理記事数。</summary>
     public int PendingCount { get => _pending; private set { if (SetProperty(ref _pending, value)) OnPropertyChanged(nameof(StatusSummary)); } }
     /// <summary>閲覧画面に常時表示する接続と AI・待機数の短い概要。</summary>
-    public string StatusSummary => $"Worker: {(Connected ? "接続済み" : "未接続（接続の詳細・復旧から開始できます）")} / RSS: {(_rssFetching ? "巡回中" : "待機中")} / AI: {AiText.Split(" / ")[0]} / 要約待ち {PendingCount}件（失敗・処理中を含む）";
+    public string StatusSummary => $"Worker: {(Connected ? "接続済み" : "未接続（接続の詳細・復旧から開始できます）")} / 取得: {(_rssFetching ? "巡回中" : "待機中")} / AI: {AiText.Split(" / ")[0]} / 要約待ち {PendingCount}件（失敗・処理中を含む）";
     /// <summary>サインイン時起動の登録・解除の結果。</summary>
     public string StartupText { get => _startup; private set => SetProperty(ref _startup, value); }
     /// <summary>利用者に示す接続・入力・操作エラー。</summary>
@@ -187,29 +188,29 @@ public sealed partial class WorkerViewModel : ObservableObject, IDisposable
         {
             _configuration = status.Configuration; _loadedSettings = true;
             if (!preserveInitialAiDraft) ApplyAiSettings();
-            if (_selected is not null) { Name = _selected.Source.Name; Url = _selected.Source.Url; IntervalMinutes = _selected.Source.IntervalMinutes; Automatic = _selected.Source.Automatic; }
+            if (_selected is not null) { ApplySource(_selected.Source); }
         }
         EditStateChanged();
         if (RefreshResultsAsync is not null) await RefreshResultsAsync();
     }
     private async Task SaveSourceAsync()
     {
-        var draft = (Name, Url, IntervalMinutes, Automatic);
+        var draft = (Name, Url, IntervalMinutes, Automatic, KindIndex, IncludePrereleases);
         var selection = SelectedSource?.Id;
-        var url = Ateliers.Ai.Assistant.Application.WebMonitoring.FeedIdentity.Source(Url.Trim());
+        var url = ContentSourceIdentity.Normalize((ContentSourceKind)KindIndex, Url.Trim());
         var existing = _configuration.Sources.FirstOrDefault(source => source.Url == url);
         if (existing is not null && existing.Id != SelectedSource?.Id) throw new WorkerException("この URL は登録済みです。既存の情報源を選択して編集してください。");
         var id = SelectedSource?.Id ?? Guid.NewGuid();
-        var source = new SourceConfiguration(id, Name, url, IntervalMinutes, Automatic);
+        var source = new SourceConfiguration(id, Name, url, IntervalMinutes, Automatic, Kind: (ContentSourceKind)KindIndex, IncludePrereleases: IsGitHubSource && IncludePrereleases);
         var sources = _configuration.Sources.Where(item => item.Id != id).Append(source).ToArray();
         await SaveAsync(_configuration with { Sources = sources });
-        if ((Name, Url, IntervalMinutes, Automatic) != draft || SelectedSource?.Id != selection)
+        if ((Name, Url, IntervalMinutes, Automatic, KindIndex, IncludePrereleases) != draft || SelectedSource?.Id != selection)
         {
             if (SelectedSource?.Id == selection) { _selected = Sources.FirstOrDefault(item => item.Id == id); OnPropertyChanged(nameof(SelectedSource)); }
             EditStateChanged(); return;
         }
         SelectedSource = Sources.FirstOrDefault(item => item.Id == id);
-        if (SelectedSource is { } saved) { Name = saved.Source.Name; Url = saved.Source.Url; IntervalMinutes = saved.Source.IntervalMinutes; Automatic = saved.Source.Automatic; }
+        if (SelectedSource is { } saved) { ApplySource(saved.Source); }
         EditStateChanged();
     }
     /// <summary>保存中に続けて入力した新しい編集値を、古い保存完了で上書きしない。</summary>
@@ -225,7 +226,7 @@ public sealed partial class WorkerViewModel : ObservableObject, IDisposable
         if (SelectedSource is not { } selected || ConfirmDeleteSourceAsync is null || !await ConfirmDeleteSourceAsync(selected.Source.Name)) return;
         await SaveAsync(_configuration with { Sources = _configuration.Sources.Select(source => source.Id == selected.Id ? source with { Deleted = true, Automatic = false } : source).ToArray() });
         SelectedSource = null;
-        Name = ""; Url = ""; IntervalMinutes = 60; Automatic = false; EditStateChanged();
+        Name = ""; Url = ""; IntervalMinutes = 60; Automatic = false; KindIndex = 0; IncludePrereleases = false; EditStateChanged();
     }
     private async Task SaveAsync(WorkerConfiguration next)
     {
@@ -254,7 +255,7 @@ public sealed partial class WorkerViewModel : ObservableObject, IDisposable
         _diagnostics.Error("worker.ui", exception);
         if (_disposed) return;
         if (exception is WorkerException { ConnectionFailure: true }) { Connected = false; ConnectionText = "接続できません（保存済みログは確認できます）"; }
-        ErrorMessage = exception is WorkerException or StorageException ? exception.Message : "Worker の操作に失敗しました。入力値とログを確認してください。";
+        ErrorMessage = exception is WorkerException or StorageException or WebMonitoringException ? exception.Message : "Worker の操作に失敗しました。入力値とログを確認してください。";
     }
     private void CommandsChanged()
     {
@@ -281,7 +282,7 @@ public sealed class WorkerSourceViewModel(SourceConfiguration source, SourceStat
     /// <summary>表示名。</summary>
     public string Title => Source.Name;
     /// <summary>自動取得、周期、最終巡回、次回予定と結果。</summary>
-    public string Detail => Source.Url + "\n" + Schedule;
+    public string Detail => (Source.Kind == ContentSourceKind.GitHubReleases ? "GitHub Releases / " + (Source.IncludePrereleases ? "プレリリースを含む / " : "正式版のみ / ") : "RSS / Atom / ") + Source.Url + "\n" + Schedule;
     /// <summary>通知画面用の周期・次回予定。長い URL は含めない。</summary>
     public string Schedule => $"自動 {(Source.Automatic ? "ON" : "OFF")} / {Source.IntervalMinutes}分 / 最終 {State?.LastFetchedAt?.ToLocalTime().ToString("g") ?? "未実行"}" +
         $"\n次回 {State?.NextDueAt?.ToLocalTime().ToString("g") ?? "予定なし"} / {State?.Status ?? "未実行"} {State?.Error}";

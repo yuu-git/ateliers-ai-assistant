@@ -5,6 +5,8 @@ using Ateliers.Ai.Assistant.Application.Chat;
 using Ateliers.Ai.Assistant.Application.Models;
 using Ateliers.Ai.Assistant.Application.WebMonitoring;
 using Ateliers.Ai.Assistant.Core.Chat;
+using Ateliers.Ai.Assistant.Application.Worker;
+using Ateliers.Ai.Assistant.Infrastructure.WebMonitoring;
 
 namespace Ateliers.Ai.Assistant.Worker;
 
@@ -12,6 +14,24 @@ namespace Ateliers.Ai.Assistant.Worker;
 internal sealed class VerificationAdapters : IFeedSource, IChatService, IModelControlService
 {
     private bool _loaded;
+    /// <summary>GitHub は実アダプターへ偽 HTTP を渡し、独立プロセスでも外部通信しない。</summary>
+    async Task<IReadOnlyList<FeedArticle>> IContentSource.FetchAsync(SourceConfiguration source, CancellationToken token)
+    {
+        if (source.Kind == ContentSourceKind.RssAtom) return await FetchAsync(source.Url, token);
+        using var client = new HttpClient(new GitHubHandler());
+        return await new GitHubReleasesSource(client).FetchAsync(source, token);
+    }
+    /// <summary>HTTP/JSON解析から通常の GitHub 経路を検証する。</summary>
+    private sealed class GitHubHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.RequestUri?.Host != "api.github.com") throw new InvalidOperationException("Unexpected verification host");
+            var data = Enumerable.Range(1, 12).Select(id => new { id, name = "GitHub 検証 " + id, body = "検証用のリリースノート", tag_name = "v" + id,
+                html_url = "https://github.com/verification/project/releases/tag/v" + id, published_at = DateTimeOffset.UnixEpoch.AddDays(id), draft = false, prerelease = false }).ToArray();
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(data)) });
+        }
+    }
     /// <inheritdoc/>
     public Task<IReadOnlyList<FeedArticle>> FetchAsync(string url, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyList<FeedArticle>>(
         Enumerable.Range(0, 12).Select(index => new FeedArticle(FeedIdentity.Key(url, "test-" + index, null, "", null), url, "test-" + index,

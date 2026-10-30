@@ -11,6 +11,7 @@ using System.Threading.Tasks;
 using Ateliers.Ai.Assistant.Application.Logging;
 using Ateliers.Ai.Assistant.Application.Models;
 using Ateliers.Ai.Assistant.Application.Worker;
+using Ateliers.Ai.Assistant.Application.WebMonitoring;
 using Ateliers.Ai.Assistant.Desktop.ViewModels;
 using Ateliers.Ai.Assistant.Infrastructure.Chat;
 using Ateliers.Ai.Assistant.Infrastructure.Conversations;
@@ -23,7 +24,7 @@ namespace Ateliers.Ai.Assistant.Desktop.Diagnostics;
 internal static class WorkerDisplayVerification
 {
     /// <summary>接続あり・停止中の二段階を別ウィンドウで検証する。</summary>
-    internal static MainWindow Create(string reportPath, string root, bool offline, bool notifications = false)
+    internal static MainWindow Create(string reportPath, string root, bool offline, bool notifications = false, bool github = false)
     {
         var paths = new AppDataPaths(Path.Combine(root, "r"), Path.Combine(root, "l"));
         var log = new FileDiagnosticLog(paths, "UI");
@@ -55,14 +56,15 @@ internal static class WorkerDisplayVerification
                     if (!worker.Connected) throw new InvalidOperationException(worker.ErrorMessage);
                     worker.Model = "verification-model"; worker.AiPaused = true; worker.AllowLoad = true;
                     await worker.SaveOptionsCommand.ExecuteAsync();
-                    window.ShowWebForVerification(); await Task.Delay(200); await window.ConfigureSourceForVerificationAsync(); await Task.Delay(100);
-                    if (worker.IntervalMinutes != 5 || !worker.Automatic || worker.Url != "https://example.com/feed") throw new InvalidOperationException($"Native source input bindings failed: interval={worker.IntervalMinutes}, automatic={worker.Automatic}, url={worker.Url}, name={worker.Name}");
+                    window.ShowWebForVerification(); await Task.Delay(200); await window.ConfigureSourceForVerificationAsync(github); await Task.Delay(100);
+                    if (worker.IntervalMinutes != 5 || !worker.Automatic || worker.Url != (github ? "verification/project" : "https://example.com/feed") || github && (!worker.IsGitHubSource || !worker.IncludePrereleases)) throw new InvalidOperationException($"Native source input bindings failed: interval={worker.IntervalMinutes}, automatic={worker.Automatic}, url={worker.Url}, name={worker.Name}");
                     await worker.SaveSourceCommand.ExecuteAsync(); await worker.FetchCommand.ExecuteAsync();
                     for (var attempt = 0; attempt < 100 && worker.PendingCount != 10; attempt++) { await Task.Delay(100); await worker.PollAsync(); }
                     if (worker.PendingCount != 10 || !worker.Sources.Single().Detail.Contains("次回 ") || worker.Sources.Single().Detail.Contains("予定なし"))
                         throw new InvalidOperationException("Worker pending count or next run not displayed: " + worker.ErrorMessage);
                     report.Add("PASS: native source inputs, period edit, next schedule, paused AI and ten pending articles");
-                    if (notifications) await NotificationFeatureVerification.RunAsync(window, web, worker, api, report);
+                    if (notifications || github) await NotificationFeatureVerification.RunAsync(window, web, worker, api, report);
+                    if (github && (web.Notifications.Any(row => row.Item.GitHubRelease is null || row.Item.GitHubRelease.Repository != "verification/project") || worker.Sources[0].Source.Kind != ContentSourceKind.GitHubReleases)) throw new InvalidOperationException("GitHub metadata or kind was not restored through actual API");
                 }
                 else if (worker.Connected) throw new InvalidOperationException("Offline Worker incorrectly shown as connected");
                 window.ShowLogsForVerification(); await Task.Delay(200); await logs.RefreshAsync();

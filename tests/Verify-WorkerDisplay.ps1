@@ -1,4 +1,4 @@
-param([switch]$Notifications)
+param([switch]$Notifications, [switch]$GitHub)
 $ErrorActionPreference = 'Stop'
 $app = Join-Path $PSScriptRoot '../src/Ateliers.Ai.Assistant.Desktop/bin/x64/Debug/net8.0-windows10.0.19041.0/win-x64/Ateliers.Ai.Assistant.Desktop.exe'
 $testRoot = Join-Path $env:TEMP ('ateliers-worker-ui-' + [Guid]::NewGuid().ToString('N'))
@@ -20,7 +20,7 @@ function Worker-Status {
     return Invoke-RestMethod -Uri ($script:endpoint.address + 'api/v1/status') -Headers @{ Authorization = ('Bearer ' + $script:endpoint.token) } -TimeoutSec 5
 }
 try {
-    if ($Notifications) { Run-Window 'notifications' } else { Run-Window 'connected' }
+    if ($GitHub) { Run-Window 'github' } elseif ($Notifications) { Run-Window 'notifications' } else { Run-Window 'connected' }
     $workerIdentity = [int](Get-Content -LiteralPath (Join-Path $testRoot 'worker.pid') -Raw)
     $workerProcess = Get-Process -Id $workerIdentity
     $script:endpoint = Get-Content -LiteralPath $connectionPath -Raw | ConvertFrom-Json

@@ -109,7 +109,7 @@ public sealed partial class SqliteWebMonitoringStore(IApplicationPaths paths, IA
             var stored = articles[row.ArticleId];
             var article = ToArticle(stored);
             return new ArticleNotification(new NotificationDto(article.Id, new DateTimeOffset(row.CreatedTicks, TimeSpan.Zero),
-                NotificationKind.Information, article.Article.Title, article.Summary ?? ""), article.Article.Url, article.MarkdownPath!, article.Article.PublishedAt, article.Model, stored.Source);
+                NotificationKind.Information, article.Article.Title, article.Summary ?? ""), article.Article.Url, article.MarkdownPath!, article.Article.PublishedAt, article.Model, stored.Source, GitHubRelease: article.Article.GitHubRelease);
         }).ToArray();
     }, false, token);
     /// <summary>段階を保ったまま、API 非依存の再試行スナップショットを復元する。</summary>

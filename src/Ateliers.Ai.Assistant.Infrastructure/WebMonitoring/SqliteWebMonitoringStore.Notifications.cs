@@ -43,7 +43,7 @@ public sealed partial class SqliteWebMonitoringStore : INotificationManagement
             var article = ToArticle(row);
             return new ArticleNotification(new(row.Id, new DateTimeOffset(notifications[row.Id].CreatedTicks, TimeSpan.Zero), NotificationKind.Information, article.Article.Title, row.Summary ?? ""),
                 article.Article.Url, row.MarkdownPath!, article.Article.PublishedAt, row.Model, row.Source,
-                new(row.FetchedTicks, TimeSpan.Zero), row.ReadAtTicks is { } at ? new DateTimeOffset(at, TimeSpan.Zero) : null, row.IsBookmarked, tagLookup[row.Id].ToArray());
+                new(row.FetchedTicks, TimeSpan.Zero), row.ReadAtTicks is { } at ? new DateTimeOffset(at, TimeSpan.Zero) : null, row.IsBookmarked, tagLookup[row.Id].ToArray(), article.Article.GitHubRelease);
         }).ToArray();
         return new NotificationPage(items, unreadCounts.Sum(item => item.Count), unreadCounts, count, catalog);
     }, false, token);

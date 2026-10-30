@@ -1,5 +1,10 @@
 using Ateliers.Ai.Assistant.Desktop.Tests;
 
+if (args.Length == 2 && args[0] == "--github-repository")
+{
+    await GitHubReleaseTests.LiveFetch(args[1]);
+    return;
+}
 if (args.Length == 2 && args[0] == "--ollama-model")
 {
     await ServiceTests.LiveConversation(args[1]);
@@ -7,9 +12,17 @@ if (args.Length == 2 && args[0] == "--ollama-model")
 }
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("GitHub API 契約・対象選別・入力・識別", GitHubReleaseTests.FetchContractAndSelection),
+    ("GitHub HTTP 障害・制限・JSON・中止・サイズ", GitHubReleaseTests.FailuresAndBounds),
+    ("GitHub リダイレクト制限・空リリース", GitHubReleaseTests.RedirectAndEmpty),
+    ("GitHub Worker・旧記事保持・編集重複・削除再取得", GitHubReleaseTests.WorkerPersistenceAndMetadata),
+    ("GitHub 全体のレート制限・RSS 継続・再起動復元", GitHubReleaseTests.SharedRateLimitAndRecovery),
+    ("GitHub 設定・旧 RSS JSON 互換", GitHubReleaseTests.LegacyConfigurationAndValidation),
+    ("GitHub 入力編集の保持・設定 API エラー表示", GitHubReleaseTests.SourceEditorAndApiErrors),
     ("一覧の単体削除・確認の副作用・連打・一括確認の独立", NotificationQuickActionTests.DeleteAndConfirmation),
     ("確認設定の旧 JSON・保存順序・失敗時の維持", NotificationQuickActionTests.SettingsOrderingAndFailures),
-    ("ユーザー操作だけの既読化・日付境界・詳細保持", NotificationViewModelTests.ExplicitReadAndLocalGroups),
+    ("閲覧終了時の既読化・手動未読優先・詳細保持", NotificationViewModelTests.ExplicitReadAndLocalGroups),
+    ("既読化の連続選択・保存失敗・終了待機", NotificationViewModelTests.DeferredReadQueueAndFailure),
     ("グローバル Worker 操作・実状態・設定編集保持", NotificationViewModelTests.GlobalWorkerControls),
     ("AI 即時操作が他設定と RSS 予定を維持", WorkerTests.PauseOnlyConfiguration),
     ("通知全件の未読集計・100件外検索・初回取得順", NotificationManagementTests.QueriesAndCounts),

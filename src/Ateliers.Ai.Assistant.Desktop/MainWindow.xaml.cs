@@ -62,7 +62,7 @@ public sealed partial class MainWindow : Window
     /// <summary>隔離した実画面検証で Web 画面を表示する。</summary>
     internal void ShowWebForVerification() => MainNavigation.SelectedItem = WebNavigationItem;
     /// <summary>Worker 接続・周期入力の実コントロールを検証する。</summary>
-    internal Task ConfigureSourceForVerificationAsync() => ModernWeb.ConfigureForVerificationAsync();
+    internal Task ConfigureSourceForVerificationAsync(bool github = false) => ModernWeb.ConfigureForVerificationAsync(github);
     /// <summary>ログ画面と実リストの複数選択を検証する。</summary>
     internal void ShowLogsForVerification() => MainNavigation.SelectedItem = LogsNavigationItem;
     /// <summary>実 ListView の選択から詳細表示・コピーを検証する。</summary>
@@ -111,6 +111,9 @@ public sealed partial class MainWindow : Window
             GlobalWorkerStatus.Initialize(WorkerViewModel, SettingsViewModel.DataEnvironmentText); GlobalWorkerStatus.Visibility = Visibility.Visible;
             WorkerOptions.Visibility = ModernWeb.Visibility = Visibility.Visible;
             LegacyWebPanel.Visibility = Visibility.Collapsed;
+            // 非表示の旧一覧が ItemsSource 更新で現行画面の選択を消さないよう切り離す。
+            WebNotificationList.ClearValue(ListView.SelectedItemProperty);
+            WebNotificationList.SelectionMode = ListViewSelectionMode.None;
             NotificationPreview.RenderingEnabled = false;
             if (WebViewModel is not null)
             {
@@ -176,6 +179,7 @@ public sealed partial class MainWindow : Window
                 !await ViewModel.PrepareToLeaveConversationAsync())
             { MainNavigation.SelectedItem = _previousNavigation; return; }
             var tag = (args.SelectedItem as NavigationViewItem)?.Tag as string;
+            if (WebPanel.Visibility == Visibility.Visible && tag != "Web" && WebViewModel is not null) await WebViewModel.EndReadingAsync();
             ChatPanel.Visibility = tag == "Chat" ? Visibility.Visible : Visibility.Collapsed;
             ModelPanel.Visibility = tag == "Models" ? Visibility.Visible : Visibility.Collapsed;
             SettingsPanel.Visibility = tag == "Settings" ? Visibility.Visible : Visibility.Collapsed;

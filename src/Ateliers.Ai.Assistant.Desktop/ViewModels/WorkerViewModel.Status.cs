@@ -27,7 +27,7 @@ public sealed partial class WorkerViewModel
     };
     /// <summary>設定の編集中チェックではなく、最後に確認した実行設定から表示する。</summary>
     public string GlobalAiState => !Connected || _runtimeState is not (RuntimeState.Running or RuntimeState.StopFailed) ? "AI: 状態不明" :
-        _actualAiPaused ? "AI: 一時停止中（RSS は継続）" : _actualSummarizing ? "AI: 処理中" : "AI: 有効 / " + AiText;
+        _actualAiPaused ? "AI: 一時停止中（情報取得は継続）" : _actualSummarizing ? "AI: 処理中" : "AI: 有効 / " + AiText;
     /// <summary>最後に確認した保存済み一時停止状態。</summary>
     public bool ActualAiPaused => _actualAiPaused;
     /// <summary>狭いナビゲーションでも表示する実状態の短い表記。</summary>
@@ -35,7 +35,7 @@ public sealed partial class WorkerViewModel
     /// <summary>狭幅の AI 状態。保存前のチェックボックスからは算出しない。</summary>
     public string CompactAiState => !Connected || _runtimeState is not (RuntimeState.Running or RuntimeState.StopFailed) ? "AI ?" : _actualAiPaused ? "AI 休" : _actualSummarizing ? "AI 中" : "AI 有";
     /// <summary>実設定に対する次の操作名。</summary>
-    public string AiPauseActionText => _actualAiPaused ? "AI を再開（RSS 継続）" : "AI を一時停止（RSS 継続）";
+    public string AiPauseActionText => _actualAiPaused ? "AI を再開（情報取得継続）" : "AI を一時停止（情報取得継続）";
     /// <summary>設定編集を保存せずに、一時停止だけを即時反映する共有コマンド。</summary>
     public AsyncCommand ToggleAiPauseCommand { get; }
     private bool CanStartWorker => !_disposed && !_busy && !Connected && !_knownPresenceRunning && _runtimeState is not (RuntimeState.Starting or RuntimeState.Stopping);

@@ -26,12 +26,14 @@ public sealed partial class WorkerConsoleView : UserControl
     { DeleteConfirmation.Visibility = Microsoft.UI.Xaml.Visibility.Collapsed; _deleteConfirmation?.TrySetResult(confirmed); _deleteConfirmation = null; }
 #if DEBUG
     /// <summary>実コントロールの TwoWay 入力を検証する。</summary>
-    internal async System.Threading.Tasks.Task SetInputsAsync(string name, string url, int interval)
+    internal async System.Threading.Tasks.Task SetInputsAsync(string name, string url, int interval, bool github = false)
     {
         SourceEditor.IsExpanded = true;
         await System.Threading.Tasks.Task.Delay(200); // Expander の内容が読み込まれてから入力する。
         if (SourceName.DataContext is not ViewModels.WorkerViewModel) throw new System.InvalidOperationException("Unexpected source DataContext: " + SourceName.DataContext?.GetType().FullName);
+        SourceKind.SelectedIndex = github ? 1 : 0;
         SourceName.Text = name; SourceUrl.Text = url; SourceInterval.Value = interval; SourceAutomatic.IsChecked = true;
+        if (github) SourcePrereleases.IsChecked = true;
     }
 #endif
 }

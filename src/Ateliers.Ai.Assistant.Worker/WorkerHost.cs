@@ -50,7 +50,7 @@ public static class WorkerHost
             var ollama = new OllamaChatService(chatClient, keepAliveSeconds: 300);
             var store = new SqliteWebMonitoringStore(paths, diagnostics);
             var coordinator = new WorkerCoordinator(new WorkerStateStore(paths, store, new JsonUserSettingsStore(paths, diagnostics)), store,
-                verificationFeed ?? new RssFeedSource(feedClient), new ArticleMarkdownWriter(paths), verificationChat ?? ollama, verificationModels ?? ollama,
+                verificationFeed is not null ? verificationFeed : new ContentSourceRouter(new RssFeedSource(feedClient), new GitHubReleasesSource(feedClient)), new ArticleMarkdownWriter(paths), verificationChat ?? ollama, verificationModels ?? ollama,
                 FileOperationGate.ForModels(paths), diagnostics, diagnostics, clock);
             await coordinator.InitializeAsync(CancellationToken.None).ConfigureAwait(false);
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [], ApplicationName = typeof(WorkerHost).Assembly.GetName().Name });
@@ -82,7 +82,7 @@ public static class WorkerHost
                     diagnostics.Error("api.request", exception);
                     context.Response.StatusCode = exception is WorkerException or WebMonitoringException ? 400 : 500;
                     if (exception is WorkerException && exception.Message.Contains("別の画面", StringComparison.Ordinal)) context.Response.StatusCode = 409;
-                    await context.Response.WriteAsync("操作を完了できません。状態と入力値・ログを確認してください。");
+                    await context.Response.WriteAsync(exception is WorkerException or WebMonitoringException ? exception.Message : "操作を完了できません。状態と入力値・ログを確認してください。");
                 }
             });
             app.MapGet("/api/v1/status", (CancellationToken token) => coordinator.StatusAsync(token));

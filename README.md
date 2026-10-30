@@ -1,4 +1,21 @@
-# Ateliers AI Assistant — Phase 4: 常駐・自動巡回
+# Ateliers AI Assistant — Phase 5: 情報源拡張基盤・GitHub Releases
+
+既存の RSS / Atom に加え、公開 GitHub Releases を同じ Worker で巡回・要約・通知できます。「情報源設定」で種別を選び、GitHub は `owner/repository`（例: `microsoft/vscode`）を入力してください。認証なし、プレリリースは情報源ごとの初期 OFF、draft は除外します。
+
+毎回 API の先頭100件内から対象の最大10件を取得します。取得済み Release ID の編集では再要約・再通知しません。記事を明示削除した場合は、次回の取得対象に残っていれば新規として再登録できます。未読・既読、ブックマーク、タグ、削除と従来の画面を維持します。
+
+現在の実装版は **5.0.0**。旧 Worker を停止してから更新後のアプリで開始してください。DB Migration・既存 ID の変更・新規 NuGet はありません。GitHub の制限時は共有の待機期限を復元し、RSS の取得と保存済み記事の要約は継続します。認証なしのため、情報源数・手動実行に応じて長い周期を設定してください。ETag・ページング・非公開／Enterprise は対象外です。
+
+詳しい採用仕様、変更ファイル、制約は文書リポジトリの `features/github-releases-implementation-status.md` を参照してください。下記は実サイト・通常 DB・実 Ollama を使わない画面確認です。最後のコマンドだけは明示的な公開 API 1回取得で、永続化しません。
+
+```powershell
+pwsh -File tests/Verify-WorkerDisplay.ps1 -GitHub
+dotnet run --project tests/Ateliers.Ai.Assistant.Desktop.Tests -- --github-repository microsoft/vscode
+```
+
+## Phase 4 導入と UI 整理の記録
+
+以下の Phase 4／3 の版番号・検証数は導入時の記録です。現在の動作・制限は上記 Phase 5 と文書リポジトリを参照してください。
 
 UI 整理では、ナビゲーションを2分類し、「通知・情報収集」を閲覧中心の配置へ、設定を Worker／バックグラウンド AI／データと保存先のカードへ整理しました。情報源別表示は全体の最新100件が対象です。詳細と参考画像との差分は [UI 整理の実装状況](docs/ui-design/implementation-status.md) を参照してください。
 
@@ -176,7 +193,7 @@ dotnet ef migrations add <MigrationName> --project src/Ateliers.Ai.Assistant.Inf
 
 ## 通知管理の追加改修（Phase 4 後）
 
-通知を初回取得日でグループ化し、既読・ブックマーク・複数の手動タグを保存します。一覧の記事を明示的に開くと既読になり、初期選択・定期更新・ブックマーク・タグ操作だけでは既読になりません。記事詳細の「記事の操作」から未読戻し・タグ編集ができます。
+通知を初回取得日でグループ化し、既読・ブックマーク・複数の手動タグを保存します。明示的に開いた記事は閲覧中は未読のまま、別記事への移動・詳細を閉じる・画面や条件の切替・通常終了時に既読となります。初期選択・定期更新・ブックマーク・タグ編集だけでは既読化しません。「記事の操作」で未読へ戻すと、その閲覧を終えても未読を維持します。詳細は文書リポジトリの `features/notification-reading-behavior.md` を参照してください。
 
 「すべて・タグなし」は全体最新100件内で情報源を絞り込み、未読／ブックマーク／タグ指定は DB 全通知へ条件を適用した最新100件を表示します。未読件数は全表示対象通知から集計します。要約待ちは含みません。削除済み情報源の記事は「すべて」から閲覧できます。
 

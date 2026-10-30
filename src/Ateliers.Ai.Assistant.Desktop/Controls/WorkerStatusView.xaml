@@ -13,10 +13,10 @@
      <TextBlock Text="{Binding ConnectionText}" TextWrapping="Wrap"/>
      <TextBlock Text="{Binding ErrorMessage}" Foreground="DarkRed" TextWrapping="Wrap"/>
      <Button Content="Worker を開始" Command="{Binding StartCommand}"/>
-     <Button Content="Worker を停止…"><Button.Flyout><MenuFlyout Opening="StopMenuOpening"><MenuFlyoutItem x:Name="StopWorkerAction" Text="RSS・AI を停止する" Command="{Binding StopCommand}"/></MenuFlyout></Button.Flyout></Button>
+     <Button Content="Worker を停止…"><Button.Flyout><MenuFlyout Opening="StopMenuOpening"><MenuFlyoutItem x:Name="StopWorkerAction" Text="取得・AI を停止する" Command="{Binding StopCommand}"/></MenuFlyout></Button.Flyout></Button>
      <TextBlock Text="{Binding GlobalAiState}" FontWeight="SemiBold" TextWrapping="Wrap"/>
      <Button x:Name="PauseAiAction" Content="{Binding AiPauseActionText}" Command="{Binding ToggleAiPauseCommand}"/>
-     <TextBlock Text="Worker 停止は巡回・AI の両方を停止します。AI の一時停止は実行中の要約を中止しますが RSS は継続します。" TextWrapping="Wrap" FontSize="12"/>
+     <TextBlock Text="Worker 停止は巡回・AI の両方を停止します。AI の一時停止は実行中の要約を中止しますが 情報取得は継続します。" TextWrapping="Wrap" FontSize="12"/>
      <TextBlock Text="AI の即時操作は一時停止だけを保存します。編集中のモデル・ロード許可・情報源設定は保存しません。" TextWrapping="Wrap" FontSize="12"/>
     </StackPanel></ScrollViewer>
    </Flyout></Button.Flyout>

@@ -8,12 +8,12 @@ using Ateliers.Ai.Assistant.Application.WebMonitoring;
 namespace Ateliers.Ai.Assistant.Application.Worker;
 
 /// <summary>取得と要約を独立して進める常駐ユースケース。ホスト・HTTP・UI の具体実装に依存しない。</summary>
-public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArticleStore articles, IFeedSource feed,
+public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArticleStore articles, IContentSource feed,
     IArticleMarkdownWriter writer, IChatService chat, IModelControlService models, IModelUseGate modelGate,
     IAppLog log, IAppDiagnostics diagnostics, TimeProvider? timeProvider = null)
 {
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
-    private readonly SemaphoreSlim _configurationGate = new(1, 1), _fetchGate = new(1, 1), _aiGate = new(1, 1), _mutationGate = new(1, 1);
+    private readonly SemaphoreSlim _configurationGate = new(1, 1), _fetchGate = new(1, 1), _aiGate = new(1, 1), _mutationGate = new(1, 1), _stateGate = new(1, 1);
     private readonly ConcurrentDictionary<Guid, SourceState> _states = new();
     private readonly ConcurrentQueue<(Guid SourceId, Guid RunId)> _requests = new();
     private volatile WorkerConfiguration _configuration = WorkerConfiguration.Default;
@@ -22,6 +22,7 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
     private bool _recoverArticles;
     private string _aiState = "起動中", _lastError = "";
     private long _nextAiCheckTicks;
+    private long _githubRetryTicks;
     /// <summary>プロセス起動を識別する ID。UI の接続先更新に利用する。</summary>
     public Guid InstanceId { get; } = Guid.NewGuid();
     /// <summary>起動日時。</summary>
@@ -29,13 +30,14 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
     /// <summary>API 契約版。不一致のクライアントによる書込を拒否する。</summary>
     public const int Protocol = 1;
     /// <summary>ホストと UI が表示する実装版。</summary>
-    public const string ImplementationVersion = "4.1.0";
+    public const string ImplementationVersion = "5.0.0";
 
     /// <summary>設定・予定を読み、強制終了時の処理中記事と取得要求を回復する。</summary>
     public async Task InitializeAsync(CancellationToken token)
     {
         _configuration = Validate(await settings.LoadConfigurationAsync(token).ConfigureAwait(false));
         foreach (var state in await settings.LoadStatesAsync(token).ConfigureAwait(false)) _states[state.Id] = state;
+        Interlocked.Exchange(ref _githubRetryTicks, _states.Values.Select(state => state.GitHubRetryAt?.UtcTicks ?? 0).DefaultIfEmpty().Max());
         await articles.RecoverAsync(token).ConfigureAwait(false);
         foreach (var source in _configuration.Sources.Where(source => !source.Deleted))
         {
@@ -50,8 +52,11 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
     public async Task<WorkerStatus> StatusAsync(CancellationToken token)
     {
         var count = await articles.PendingCountAsync(_configuration.Sources.Where(source => !source.Deleted).Select(source => source.Url).ToArray(), token).ConfigureAwait(false);
-        return new(Protocol, ImplementationVersion, InstanceId, StartedAt, _configuration, _states.Values.Where(state => _configuration.Sources.Any(source => source.Id == state.Id && !source.Deleted)).ToArray(), count,
-            _configuration.AiPaused ? "一時停止中（RSS 取得は継続）" : _aiState, _lastError, _fetching, _summarizing);
+        var visibleStates = _states.Values.Where(state => _configuration.Sources.Any(source => source.Id == state.Id && !source.Deleted))
+            .Select(state => state.NextDueAt is { } due && _configuration.Sources.Any(source => source.Id == state.Id && source.Kind == ContentSourceKind.GitHubReleases)
+                ? state with { NextDueAt = Later(due, GitHubWaitUntil) } : state).ToArray();
+        return new(Protocol, ImplementationVersion, InstanceId, StartedAt, _configuration, visibleStates, count,
+            _configuration.AiPaused ? "一時停止中（情報取得は継続）" : _aiState, _lastError, _fetching, _summarizing);
     }
     /// <summary>設定変更を保存し、周期変更を次回予定へ即時反映する。</summary>
     public Task<WorkerConfiguration> ConfigureAsync(WorkerConfiguration requested, CancellationToken token) => UpdateConfigurationAsync(requested, null, token);
@@ -72,10 +77,10 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
             foreach (var source in _configuration.Sources)
             {
                 var old = previous.Sources.FirstOrDefault(old => old.Id == source.Id);
-                if (old is null || old.IntervalMinutes != source.IntervalMinutes || old.Automatic != source.Automatic || old.Url != source.Url || old.Deleted != source.Deleted)
+                if (old is null || old.IntervalMinutes != source.IntervalMinutes || old.Automatic != source.Automatic || old.Url != source.Url || old.Kind != source.Kind || old.IncludePrereleases != source.IncludePrereleases || old.Deleted != source.Deleted)
                 {
                     var state = _states.GetOrAdd(source.Id, id => new(id));
-                    state = state with { NextDueAt = !source.Deleted && source.Automatic ? _time.GetUtcNow().AddMinutes(source.IntervalMinutes) : null,
+                    state = state with { NextDueAt = NextDue(source),
                         Status = state.Status == "情報源削除" ? "再登録（履歴保持）" : state.Status };
                     await SetStateAsync(state, token).ConfigureAwait(false);
                 }
@@ -87,7 +92,7 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
             var added = _configuration.Sources.Count(source => !previous.Sources.Any(old => old.Id == source.Id));
             var deleted = previous.Sources.Count(old => !_configuration.Sources.Any(source => source.Id == old.Id));
             Record("sources.updated", $"情報源を保存しました。追加 {added}件・削除 {deleted}件・有効 {_configuration.Sources.Count}件。");
-            Record("worker.configuration", _configuration.AiPaused ? "設定を保存しました。AI を一時停止し、実行中の要約を中止します。RSS 取得は継続します。" : "設定を保存しました。巡回周期と次回予定を更新しました。");
+            Record("worker.configuration", _configuration.AiPaused ? "設定を保存しました。AI を一時停止し、実行中の要約を中止します。情報取得は継続します。" : "設定を保存しました。巡回周期と次回予定を更新しました。");
             return _configuration;
         }
         finally { _configurationGate.Release(); }
@@ -106,6 +111,8 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
             if (existing?.FinishedAt is not null) return new(existing.Id, true);
             var state = _states.GetOrAdd(source.Id, id => new(id));
             if (state.ActiveRunId is { } active) return new(active, true);
+            if (source.Kind == ContentSourceKind.GitHubReleases && GitHubWaitUntil is { } wait)
+                throw new WorkerException($"GitHub API の取得を待機中です。解除予定 {wait.ToLocalTime():g} 以降に実行してください。");
             var run = existing ?? new CollectionRun(request.RequestId, _time.GetUtcNow(), Status: "取得待機", Source: source.Url, Model: _configuration.SummaryModel);
             await articles.SaveRunAsync(run, token).ConfigureAwait(false);
             await SetStateAsync(state with { ActiveRunId = run.Id, Status = "取得待機", Error = "" }, token).ConfigureAwait(false);
@@ -123,7 +130,7 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
         {
             if (_requests.IsEmpty)
             {
-                var due = _configuration.Sources.FirstOrDefault(source => !source.Deleted && source.Automatic &&
+                var due = _configuration.Sources.FirstOrDefault(source => !source.Deleted && source.Automatic && (source.Kind != ContentSourceKind.GitHubReleases || GitHubWaitUntil is null) &&
                     (!_states.TryGetValue(source.Id, out var state) || state.ActiveRunId is null && (state.NextDueAt ?? DateTimeOffset.MinValue) <= _time.GetUtcNow()));
                 if (due is not null) await RequestFetchAsync(new(due.Id, Guid.NewGuid()), token).ConfigureAwait(false);
             }
@@ -140,7 +147,7 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
                 {
                     if (_states.TryGetValue(request.SourceId, out var pending) && pending.ActiveRunId == request.RunId)
                         await SetStateAsync(pending with { ActiveRunId = null, LastFetchedAt = finished, Status = run.Status, Error = run.Error,
-                            NextDueAt = source?.Automatic == true ? finished.AddMinutes(source.IntervalMinutes) : null }, token).ConfigureAwait(false);
+                            NextDueAt = source?.Automatic == true ? Later(finished.AddMinutes(source.IntervalMinutes), source.Kind == ContentSourceKind.GitHubReleases ? GitHubWaitUntil : null) : null }, token).ConfigureAwait(false);
                 }
                 catch { _requests.Enqueue(request); throw; }
                 return;
@@ -150,12 +157,14 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
             {
                 if (source is null || source.Url != run.Source) { run = run with { Status = "情報源削除・変更により中止" }; return; }
                 await SetStateAsync(_states[source.Id] with { Status = "取得中" }, token).ConfigureAwait(false);
-                var items = FeedSelection.Latest(await feed.FetchAsync(source.Url, token).ConfigureAwait(false));
+                if (source.Kind == ContentSourceKind.GitHubReleases && GitHubWaitUntil is { } waiting)
+                    throw new GitHubFetchException("GitHub API のレート制限解除まで取得を待機しています。", waiting);
+                var items = FeedSelection.Latest(await feed.FetchAsync(source, token).ConfigureAwait(false));
                 await _mutationGate.WaitAsync(token).ConfigureAwait(false);
                 int added;
                 try
                 {
-                    if (!_configuration.Sources.Any(item => item.Id == source.Id && !item.Deleted && item.Url == source.Url))
+                    if (!_configuration.Sources.Any(item => item.Id == source.Id && !item.Deleted && item.Url == source.Url && item.Kind == source.Kind && item.IncludePrereleases == source.IncludePrereleases))
                     { run = run with { Status = "情報源変更により中止" }; return; }
                     added = await articles.RegisterAsync(items, _time.GetUtcNow(), token).ConfigureAwait(false);
                 }
@@ -164,10 +173,20 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
                 Record("fetch.completed", $"取得 {items.Count}件・新規 {added}件・重複 {items.Count - added}件。", run.Id);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { return; }
+            catch (GitHubFetchException exception)
+            {
+                diagnostics.Error("worker.github", exception);
+                if (exception.RetryAt is { } retry)
+                {
+                    Interlocked.Exchange(ref _githubRetryTicks, Later(retry, GitHubWaitUntil).UtcTicks);
+                }
+                run = run with { Status = exception.RetryAt is null ? "取得失敗" : "レート制限待機", Error = exception.Message };
+                _lastError = run.Error; Record("fetch.github-failed", run.Error, run.Id, AppLogLevel.Warning);
+            }
             catch (Exception exception)
             {
                 diagnostics.Error("worker.fetch", exception);
-                run = run with { Status = "取得失敗", Error = "フィードを取得できません。次回予定で再試行します。" };
+                run = run with { Status = "取得失敗", Error = source?.Kind == ContentSourceKind.GitHubReleases ? "GitHub の取得処理に失敗しました。次回予定で再試行します。" : "フィードを取得できません。次回予定で再試行します。" };
                 _lastError = run.Error; Record("fetch.failed", run.Error, run.Id, AppLogLevel.Warning);
             }
             finally
@@ -181,7 +200,7 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
                     var state = _states.GetOrAdd(request.SourceId, id => new(id));
                     await SetStateAsync(state with { ActiveRunId = interrupted ? request.RunId : null,
                         LastFetchedAt = interrupted ? state.LastFetchedAt : _time.GetUtcNow(), Status = interrupted ? "中断・再開待ち" : run.Status, Error = run.Error,
-                        NextDueAt = current?.Automatic == true ? _time.GetUtcNow().AddMinutes(current.IntervalMinutes) : null }, cleanup.Token).ConfigureAwait(false);
+                        NextDueAt = current is null ? null : NextDue(current) }, cleanup.Token).ConfigureAwait(false);
                 }
                 catch { _requests.Enqueue(request); throw; }
                 finally { _fetching = false; }
@@ -325,11 +344,29 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
             value.Sources.Any(source => source is null || source.Id == Guid.Empty || string.IsNullOrWhiteSpace(source.Name) || source.Name.Length > 120 ||
                 source.IntervalMinutes is < 5 or > 10080 || string.IsNullOrWhiteSpace(source.Url) || source.Url.Length > 4096) || value.Sources.Select(source => source.Id).Distinct().Count() != value.Sources.Count)
             throw new WorkerException("情報源名は1〜120文字、巡回周期は5〜10080分、情報源は最大50件で指定してください。");
-        var sources = value.Sources.Select(source => source with { Name = source.Name.Trim(), Url = FeedIdentity.Source(source.Url) }).ToArray();
+        var sources = value.Sources.Select(source => source with { Name = source.Name.Trim(), Url = ContentSourceIdentity.Normalize(source.Kind, source.Url), IncludePrereleases = source.Kind == ContentSourceKind.GitHubReleases && source.IncludePrereleases }).ToArray();
         if (sources.Any(source => source.Url.Length > 4096)) throw new WorkerException("正規化後の URL は4096文字以内で指定してください。");
         if (sources.Select(source => source.Url).Distinct(StringComparer.Ordinal).Count() != sources.Length) throw new WorkerException("同じ URL の情報源は重複登録できません。削除済みの情報源を再利用してください。");
         return value with { Sources = sources, SummaryModel = string.IsNullOrWhiteSpace(value.SummaryModel) ? null : value.SummaryModel.Trim() };
     }
-    private async Task SetStateAsync(SourceState state, CancellationToken token) { await settings.SaveStateAsync(state, token).ConfigureAwait(false); _states[state.Id] = state; }
+    /// <summary>削除済み情報源の状態も含め、共有する API の待機を復元する。</summary>
+    private DateTimeOffset? GitHubWaitUntil => Interlocked.Read(ref _githubRetryTicks) is var ticks && ticks > _time.GetUtcNow().UtcTicks ? new DateTimeOffset(ticks, TimeSpan.Zero) : null;
+    /// <summary>定期予定を API 待機期限より前にしない。</summary>
+    private DateTimeOffset? NextDue(SourceConfiguration source) => source.Automatic && !source.Deleted ? Later(_time.GetUtcNow().AddMinutes(source.IntervalMinutes), source.Kind == ContentSourceKind.GitHubReleases ? GitHubWaitUntil : null) : null;
+    /// <summary>通常予定と制限解除の遅い方。</summary>
+    private static DateTimeOffset Later(DateTimeOffset at, DateTimeOffset? other) => other > at ? other.Value : at;
+    /// <summary>設定編集と取得完了が重なっても共有待機を古い状態で巻き戻さない。</summary>
+    private async Task SetStateAsync(SourceState state, CancellationToken token)
+    {
+        await _stateGate.WaitAsync(token).ConfigureAwait(false);
+        try
+        {
+            // GitHub の待機は IP 共有の状態。RSS の行にも保存でき、情報源削除後も復元する。
+            if (Interlocked.Read(ref _githubRetryTicks) is var ticks && ticks > 0)
+                state = state with { GitHubRetryAt = Later(new DateTimeOffset(ticks, TimeSpan.Zero), state.GitHubRetryAt) };
+            await settings.SaveStateAsync(state, token).ConfigureAwait(false); _states[state.Id] = state;
+        }
+        finally { _stateGate.Release(); }
+    }
     private void Record(string operation, string message, Guid? id = null, AppLogLevel level = AppLogLevel.Information) => log.Write(AppLogCategory.Application, level, operation, message, id);
 }

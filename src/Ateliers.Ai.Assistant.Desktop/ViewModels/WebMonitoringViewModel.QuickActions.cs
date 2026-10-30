@@ -53,6 +53,7 @@ public sealed partial class WebMonitoringViewModel
     {
         StateText = $"{ids.Distinct().Count()}件の記事を削除しています…";
         var result = await _service.DeleteAsync(ids, token);
+        ForgetReading(result.DeletedIds);
         if (SelectedNotification is { } selected && result.DeletedIds.Contains(selected.Item.Notification.Id)) { _openedArticleId = null; SelectedNotification = null; }
         (_diagnostics as IAppLog)?.Write(AppLogCategory.Application, result.FailedIds.Count == 0 && !result.Canceled ? AppLogLevel.Information : AppLogLevel.Warning,
             "web.article-deletion", $"記事削除: 成功 {result.DeletedIds.Count}件・失敗 {result.FailedIds.Count}件・中止 {result.Canceled}。");

@@ -21,8 +21,29 @@ internal static class NotificationFeatureVerification
         var first = web.VisibleNotifications[0]; var second = web.VisibleNotifications[1]; var acquired = first.Item.FetchedAt;
         window.SelectNotificationForVerification(0); await worker.PollAsync();
         if (!first.IsUnread || web.TotalUnread != 10) throw new InvalidOperationException("Automatic selection marked read");
+        // 未読一覧で詳細を開いても残ることと、明示的な未読戻しを実 XAML で確認する。
+        view.SelectViewForVerification(1); await web.RefreshFeedAsync();
+        await view.InvokeArticleForVerificationAsync(0, bookmark: false); await worker.PollAsync();
+        view.VerifyCurrentArticleForVerification();
+        if (!first.IsUnread || web.TotalUnread != 10 || web.SelectedDocument is null) throw new InvalidOperationException("Unread article disappeared while reading");
+        await web.ToggleReadCommand.ExecuteAsync();
+        if (web.TotalUnread != 9 || web.SelectedNotification?.Item.Notification.Id != first.Item.Notification.Id || web.SelectedDocument is null)
+            throw new InvalidOperationException("Explicit read cleared detail through hidden legacy list");
+        await web.ToggleReadCommand.ExecuteAsync();
+        await view.InvokeArticleForVerificationAsync(1, bookmark: false); await web.EndReadingAsync();
+        view.VerifyCurrentArticleForVerification();
+        var persisted = await api.QueryAsync(new());
+        if (persisted.Items.Single(row => row.Notification.Id == first.Item.Notification.Id).ReadAt is not null || persisted.TotalUnread != 9)
+            throw new InvalidOperationException("Manual unread lost on departure or departed article was not read");
+        await api.SetReadAsync(new(second.Item.Notification.Id, false)); await web.RefreshFeedAsync();
+        view.SelectViewForVerification(0); await web.RefreshFeedAsync();
+        first = web.VisibleNotifications[0]; second = web.VisibleNotifications[1];
+        report.Add("PASS: native unread detail retained, explicit read does not clear detail, manual unread wins and deselection persists read");
+        report.Add("PASS: current article highlight follows detail selection across polling, switching and closing");
         await view.InvokeArticleForVerificationAsync(0, bookmark: false);
-        await UntilAsync(async () => { await web.RefreshFeedAsync(); return web.TotalUnread == 9; }, "explicit open read");
+        if (web.TotalUnread != 10 || !first.IsUnread) throw new InvalidOperationException("Open marked read before departure");
+        await web.EndReadingAsync(); await view.InvokeArticleForVerificationAsync(0, bookmark: false);
+        await UntilAsync(async () => { await web.RefreshFeedAsync(); return web.TotalUnread == 9; }, "departed article read");
         var preview = view.PreviewForVerification;
         await preview.Ready.WaitAsync(TimeSpan.FromSeconds(10));
         await Task.Delay(300);

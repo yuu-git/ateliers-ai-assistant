@@ -49,7 +49,7 @@ public partial class App : Microsoft.UI.Xaml.Application
         var workerUiIndex = Array.IndexOf(arguments, "--verify-worker-ui");
         if (workerUiIndex >= 0 && workerUiIndex + 3 < arguments.Length)
         {
-            _window = Diagnostics.WorkerDisplayVerification.Create(arguments[workerUiIndex + 1], arguments[workerUiIndex + 2], arguments[workerUiIndex + 3] == "offline", arguments[workerUiIndex + 3] == "notifications");
+            _window = Diagnostics.WorkerDisplayVerification.Create(arguments[workerUiIndex + 1], arguments[workerUiIndex + 2], arguments[workerUiIndex + 3] == "offline", arguments[workerUiIndex + 3] == "notifications", arguments[workerUiIndex + 3] == "github");
             _window.Activate(); return;
         }
         var deletionIndex = Array.IndexOf(arguments, "--verify-web-deletion-interactive");

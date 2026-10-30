@@ -55,8 +55,8 @@ internal static class NotificationQuickActionTests
         Check(!reloaded.ConfirmSingleArticleDeletion, "restart restores suppression");
         await preferences.SetDeletionConfirmationAsync(true);
         Check((await disk.LoadAsync()).ConfirmSingleArticleDeletion, "settings can re-enable confirmation");
-        await web.OpenArticleAsync(web.VisibleNotifications[0]);
-        Check(web.SelectedNotification!.UnreadSuffix == "", "read article has no unread suffix");
+        var readRow = web.VisibleNotifications[0]; await web.OpenArticleAsync(readRow); await web.EndReadingAsync();
+        Check(readRow.UnreadSuffix == "", "read article has no unread suffix after leaving");
     }
     public static async Task SettingsOrderingAndFailures()
     {

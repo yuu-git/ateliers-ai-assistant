@@ -56,7 +56,7 @@ public sealed partial class WebMonitoringView : UserControl, IDisposable
         BackToList.Visibility = narrow ? Visibility.Visible : Visibility.Collapsed;
         ArticleActions.Orientation = narrow ? Orientation.Vertical : Orientation.Horizontal;
     }
-    private void BackClicked(object sender, RoutedEventArgs args) { _detailRequested = false; UpdateLayoutMode(); }
+    private async void BackClicked(object sender, RoutedEventArgs args) { if (_web is not null) await _web.EndReadingAsync(); _detailRequested = false; UpdateLayoutMode(); }
     private async void OpenArticleClicked(object sender, RoutedEventArgs args)
     { if (_web is not null && (sender as FrameworkElement)?.DataContext is WebNotificationViewModel row) { _detailRequested = true; await _web.OpenArticleAsync(row); UpdateLayoutMode(); } }
     private async void BookmarkClicked(object sender, RoutedEventArgs args)
@@ -66,9 +66,10 @@ public sealed partial class WebMonitoringView : UserControl, IDisposable
     private async void TagFilterClicked(object sender, RoutedEventArgs args)
     { if (_web is not null && (sender as FrameworkElement)?.DataContext is ArticleTag tag) { await _web.FilterByTagAsync(tag); } }
     private void SettingsClicked(object sender, RoutedEventArgs args) => NavigateToSettings?.Invoke();
-    private void ResultTabChanged(object sender, SelectionChangedEventArgs args)
+    private async void ResultTabChanged(object sender, SelectionChangedEventArgs args)
     {
         if (NotificationsPane is null) return;
+        if (ResultTab.SelectedIndex == 1 && _web is not null) await _web.EndReadingAsync();
         NotificationsPane.Visibility = ResultTab.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
         RunList.Visibility = ResultTab.SelectedIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -101,6 +102,20 @@ public sealed partial class WebMonitoringView : UserControl, IDisposable
     /// <summary>WebView2 と変更購読を解放する。</summary>
     public void Dispose() { if (_web is not null) _web.PropertyChanged -= WebChanged; Preview.Dispose(); }
 #if DEBUG
+    /// <summary>実現済み行の閲覧表示が、詳細の選択と一致することを確認する。</summary>
+    internal void VerifyCurrentArticleForVerification()
+    {
+        if (_web is null) throw new InvalidOperationException("ViewModel is missing");
+        foreach (var row in _web.VisibleNotifications)
+        {
+            var expected = ReferenceEquals(row, _web.SelectedNotification);
+            if (row.IsCurrent != expected) throw new InvalidOperationException("Current article state differs from detail");
+            if (NotificationList.ContainerFromItem(row) is not ListViewItem { ContentTemplateRoot: FrameworkElement content }) continue;
+            var visibility = expected ? Visibility.Visible : Visibility.Collapsed;
+            if ((content.FindName("CurrentArticleHighlight") as Border)?.Visibility != visibility)
+                throw new InvalidOperationException("Current article highlight differs from detail");
+        }
+    }
     /// <summary>実タグ入力・コマンド結合を検証する。</summary>
     internal async Task AddTagForVerificationAsync(string name)
     {
@@ -157,10 +172,10 @@ public sealed partial class WebMonitoringView : UserControl, IDisposable
     /// <summary>実選択による詳細表示。</summary>
     internal void SelectForVerification(int index) { if (_web is not null) _web.SelectedNotification = index >= 0 ? _web.VisibleNotifications[index] : null; }
     /// <summary>管理ダイアログの実入力を検証する。</summary>
-    internal async Task ConfigureForVerificationAsync()
+    internal async Task ConfigureForVerificationAsync(bool github = false)
     {
         var showing = ShowSourceManagerAsync(); await Task.Delay(300);
-        await _editor.SetInputsAsync("実プロセスの情報源", "https://example.com/feed", 5);
+        await _editor.SetInputsAsync("実プロセスの情報源", github ? "verification/project" : "https://example.com/feed", 5, github);
         await _worker!.PollAsync();
         if (_worker.Name != "実プロセスの情報源" || _worker.IntervalMinutes != 5 || !_worker.Automatic) throw new InvalidOperationException("Polling replaced native source inputs");
         // 入力後に閉じても未保存値を勝手に破棄しない。

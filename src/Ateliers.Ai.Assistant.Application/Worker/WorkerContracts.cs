@@ -3,7 +3,8 @@ using Ateliers.Ai.Assistant.Application.WebMonitoring;
 namespace Ateliers.Ai.Assistant.Application.Worker;
 
 /// <summary>利用者が設定する情報源。削除指定は巡回だけを停止し、記事の URL 別重複記録は保持する。</summary>
-public sealed record SourceConfiguration(Guid Id, string Name, string Url, int IntervalMinutes = 60, bool Automatic = false, bool Deleted = false);
+public sealed record SourceConfiguration(Guid Id, string Name, string Url, int IntervalMinutes = 60, bool Automatic = false, bool Deleted = false,
+    ContentSourceKind Kind = ContentSourceKind.RssAtom, bool IncludePrereleases = false);
 /// <summary>Worker だけが保存する小容量設定。Version で複数 UI の上書き競合を検出する。</summary>
 public sealed record WorkerConfiguration(long Version, string? SummaryModel, bool AllowLoad, bool AllowUnload,
     bool AiPaused, IReadOnlyList<SourceConfiguration> Sources)
@@ -13,7 +14,7 @@ public sealed record WorkerConfiguration(long Version, string? SummaryModel, boo
 }
 /// <summary>情報源の次回予定と、取得処理の永続的な進捗。</summary>
 public sealed record SourceState(Guid Id, DateTimeOffset? LastFetchedAt = null, DateTimeOffset? NextDueAt = null,
-    string Status = "未実行", string Error = "", Guid? ActiveRunId = null);
+    string Status = "未実行", string Error = "", Guid? ActiveRunId = null, DateTimeOffset? GitHubRetryAt = null);
 /// <summary>UI が表示する Worker の全体状態。秘密トークンは含めない。</summary>
 public sealed record WorkerStatus(int Protocol, string Version, Guid InstanceId, DateTimeOffset StartedAt,
     WorkerConfiguration Configuration, IReadOnlyList<SourceState> Sources, int PendingArticles,

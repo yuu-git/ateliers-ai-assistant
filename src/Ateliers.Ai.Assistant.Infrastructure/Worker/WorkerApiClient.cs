@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using System.Text;
 using Ateliers.Ai.Assistant.Application.WebMonitoring;
 using Ateliers.Ai.Assistant.Application.Worker;
 
@@ -59,6 +60,19 @@ public sealed partial class WorkerApiClient(HttpClient client, WorkerConnectionF
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.Unauthorized) throw new WorkerException("Worker の認証に失敗しました。Worker を再起動してください。", connectionFailure: true);
             if (response.StatusCode == HttpStatusCode.Conflict) throw new WorkerException("別の画面で設定または状態が変わりました。一覧を更新して再試行してください。");
+            if (response.StatusCode == HttpStatusCode.BadRequest)
+            {
+                // 認証済み Worker が組み立てた安全な理由だけを、上限付きで画面へ渡す。
+                await using var errorStream = await response.Content.ReadAsStreamAsync(deadline.Token).ConfigureAwait(false);
+                var error = new byte[2049]; var length = 0;
+                while (length < error.Length)
+                {
+                    var count = await errorStream.ReadAsync(error.AsMemory(length), deadline.Token).ConfigureAwait(false);
+                    if (count == 0) break; length += count;
+                }
+                var message = Encoding.UTF8.GetString(error, 0, length);
+                throw new WorkerException(length is > 0 and <= 2048 && !message.Any(char.IsControl) ? message : "Worker が入力または現在の状態を受け付けませんでした。");
+            }
             if (!response.IsSuccessStatusCode) throw new WorkerException("Worker が操作を完了できませんでした。入力値とログを確認してください。");
             if (response.Content.Headers.ContentLength > 8 * 1024 * 1024) throw new WorkerException("Worker 応答が上限を超えています。");
             await using var stream = await response.Content.ReadAsStreamAsync(deadline.Token).ConfigureAwait(false);

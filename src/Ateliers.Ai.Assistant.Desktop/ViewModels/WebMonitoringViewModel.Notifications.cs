@@ -18,7 +18,13 @@ public sealed partial class WebMonitoringViewModel
     private ArticleTag? _selectedTagToRemove;
     private IReadOnlyList<SourceUnreadCount> _unreadBySource = [];
     private Guid? _openedArticleId;
-    private Guid? _pendingReadArticleId;
+    private WebNotificationViewModel? _autoReadArticle;
+    private readonly Queue<WebNotificationViewModel> _pendingReadArticles = new();
+    private readonly HashSet<Guid> _pendingReadIds = new();
+    private Task _readDrain = Task.CompletedTask;
+    private bool _drainingReads;
+    private TaskCompletionSource? _metadataIdle;
+    private TaskCompletionSource? _refreshIdle;
     private long _queryRevision;
     private bool _queryPending, _metadataBusy;
     private bool _hasUnreadCounts;
@@ -36,7 +42,7 @@ public sealed partial class WebMonitoringViewModel
     public int FilterIndex
     {
         get => _filterIndex;
-        set { if (value is >= 0 and <= 2 && SetProperty(ref _filterIndex, value)) { _openedArticleId = null; ApplyFilter(); QueryChanged(); } }
+        set { if (value is >= 0 and <= 2 && value != _filterIndex) { EndReadingSelection(); SetProperty(ref _filterIndex, value); ApplyFilter(); QueryChanged(); } }
     }
     /// <summary>タグ検索の入力。適用するまで検索条件を変更しない。</summary>
     public string TagFilterInput { get => _tagFilterInput; set => SetProperty(ref _tagFilterInput, value); }
@@ -64,15 +70,15 @@ public sealed partial class WebMonitoringViewModel
     {
         ApplyTagFilterCommand = new(async () =>
         {
-            try { _activeTagName = string.IsNullOrWhiteSpace(TagFilterInput) ? null : TagNameRules.Normalize(TagFilterInput).Name; _openedArticleId = null; ApplyFilter(); QueryChanged(false); await RefreshFeedAsync(); }
+            try { var tag = string.IsNullOrWhiteSpace(TagFilterInput) ? null : TagNameRules.Normalize(TagFilterInput).Name; EndReadingSelection(); _activeTagName = tag; ApplyFilter(); QueryChanged(false); await RefreshFeedAsync(); }
             catch (Exception exception) { Failure(exception); }
         }, () => CanManageNotification);
         ClearNotificationFiltersCommand = new(async () =>
         {
-            _filterIndex = 0; OnPropertyChanged(nameof(FilterIndex)); _activeTagName = null; TagFilterInput = "";
-            _openedArticleId = null; ApplyFilter(); QueryChanged(false); await RefreshFeedAsync();
+            EndReadingSelection(); _filterIndex = 0; OnPropertyChanged(nameof(FilterIndex)); _activeTagName = null; TagFilterInput = "";
+            ApplyFilter(); QueryChanged(false); await RefreshFeedAsync();
         }, () => !_disposed);
-        ToggleReadCommand = new(() => SelectedNotification is { } row ? MutateNotificationAsync(() => _notificationManagement!.SetReadAsync(new(row.Item.Notification.Id, row.IsUnread))) : Task.CompletedTask,
+        ToggleReadCommand = new(ToggleExplicitReadAsync,
             () => CanManageNotification && SelectedNotification is not null);
         ToggleSelectedBookmarkCommand = new(() => SelectedNotification is { } row ? ToggleBookmarkAsync(row) : Task.CompletedTask,
             () => CanManageNotification && SelectedNotification is not null);
@@ -87,28 +93,56 @@ public sealed partial class WebMonitoringViewModel
             MutateNotificationAsync(() => _notificationManagement!.RemoveTagAsync(new(row.Item.Notification.Id, tag.Id))) : Task.CompletedTask,
             () => CanManageNotification && SelectedNotification is not null && SelectedTagToRemove is not null);
     }
-    /// <summary>ユーザーの詳細を開く操作だけが既読要求を発行する。選択 setter は既読にしない。</summary>
+    /// <summary>開いている間は未読を維持し、明示的に開いた記事だけ閲覧終了時の既読化を予約する。</summary>
     public async Task OpenArticleAsync(WebNotificationViewModel row)
     {
-        _openedArticleId = row.Item.Notification.Id; SelectedNotification = row;
-        if (HasNotificationManagement && row.IsUnread && (_metadataBusy || IsRunning)) { _pendingReadArticleId = row.Item.Notification.Id; return; }
-        if (CanManageNotification && row.IsUnread)
-            await MutateNotificationAsync(() => _notificationManagement!.SetReadAsync(new(row.Item.Notification.Id, true)));
+        if (_disposed || _openedArticleId == row.Item.Notification.Id) return;
+        SelectedNotification = row;
+        _openedArticleId = row.Item.Notification.Id;
+        _autoReadArticle = HasNotificationManagement && row.IsUnread ? row : null;
+        await DrainPendingReadsAsync();
     }
+    /// <summary>詳細を閉じる・画面を離れる操作。処理中のメタデータ更新と順序を合わせる。</summary>
+    public async Task EndReadingAsync()
+    {
+        EndReadingSelection();
+        if (_metadataIdle is { } idle) await idle.Task;
+        await _readDrain;
+        await DrainPendingReadsAsync();
+    }
+    /// <summary>明示的な既読／未読指定を、その閲覧セッションの自動既読化より優先する。</summary>
+    private async Task ToggleExplicitReadAsync()
+    {
+        if (SelectedNotification is not { } row) return;
+        var automatic = _autoReadArticle;
+        _autoReadArticle = null;
+        if (!await MutateNotificationAsync(() => _notificationManagement!.SetReadAsync(new(row.Item.Notification.Id, row.IsUnread)), row) &&
+            _openedArticleId == row.Item.Notification.Id) _autoReadArticle = automatic;
+    }
+    /// <summary>開く操作で予約した記事だけをキューへ移す。初期選択・自動選択には副作用を付けない。</summary>
+    private void FinishReading()
+    {
+        var row = _autoReadArticle; _autoReadArticle = null; _openedArticleId = null;
+        if (row is { IsUnread: true } && _pendingReadIds.Add(row.Item.Notification.Id)) _pendingReadArticles.Enqueue(row);
+        ResumePendingRead();
+    }
+    /// <summary>表示条件や情報源の切替は、現在の記事の閲覧を終えて詳細を閉じる。</summary>
+    private void EndReadingSelection() { FinishReading(); SelectedNotification = null; }
     /// <summary>一覧のボタンからの操作。記事選択・既読状態を変えない。</summary>
     public async Task ToggleBookmarkAsync(WebNotificationViewModel row)
     { if (CanManageNotification) await MutateNotificationAsync(() => _notificationManagement!.SetBookmarkAsync(new(row.Item.Notification.Id, !row.Item.IsBookmarked))); }
     /// <summary>付与済みタグを選ぶ明示操作。記事を既読にしない。</summary>
     public async Task FilterByTagAsync(ArticleTag tag) { TagFilterInput = tag.Name; await ApplyTagFilterCommand.ExecuteAsync(); }
-    private async Task<bool> MutateNotificationAsync(Func<Task<ArticleMetadata>> operation)
+    private async Task<bool> MutateNotificationAsync(Func<Task<ArticleMetadata>> operation, WebNotificationViewModel? target = null)
     {
         if (!CanManageNotification) return false;
-        _metadataBusy = true; _queryRevision++; NotifyMetadataCommands();
+        _metadataBusy = true; _metadataIdle = new(TaskCreationOptions.RunContinuationsAsynchronously); _queryRevision++; NotifyMetadataCommands();
         try
         {
             var metadata = await operation();
             if (_disposed) return false;
-            var rows = Notifications.Concat(SelectedNotification is { } selected ? new[] { selected } : Array.Empty<WebNotificationViewModel>()).Distinct();
+            var rows = Notifications.Concat(SelectedNotification is { } selected ? new[] { selected } : Array.Empty<WebNotificationViewModel>())
+                .Concat(target is null ? Array.Empty<WebNotificationViewModel>() : new[] { target }).Distinct();
             foreach (var row in rows.Where(row => row.Item.Notification.Id == metadata.ArticleId))
                 row.Update(row.Item with { ReadAt = metadata.ReadAt, IsBookmarked = metadata.IsBookmarked, Tags = metadata.Tags });
             QueryChanged(false); await RefreshFeedAsync(); return true;
@@ -116,15 +150,40 @@ public sealed partial class WebMonitoringViewModel
         catch (Exception exception) { Failure(exception); return false; }
         finally
         {
-            _metadataBusy = false; NotifyMetadataCommands();
+            _metadataBusy = false; var idle = _metadataIdle; _metadataIdle = null; idle?.TrySetResult(); NotifyMetadataCommands();
             ResumePendingRead();
         }
     }
-    /// <summary>別操作中に明示的に開いた未読記事だけ、現在も選択中なら既読化を再開する。</summary>
-    private void ResumePendingRead()
+    /// <summary>削除された記事を既読化せず、遅れて到着した操作から除外する。</summary>
+    private void ForgetReading(IReadOnlyList<Guid> deleted)
     {
-        var pending = _pendingReadArticleId; _pendingReadArticleId = null;
-        if (!_disposed && pending is not null && SelectedNotification is { IsUnread: true } current && current.Item.Notification.Id == pending) _ = OpenArticleAsync(current);
+        if (_autoReadArticle is { } row && deleted.Contains(row.Item.Notification.Id)) _autoReadArticle = null;
+        _pendingReadIds.ExceptWith(deleted);
+    }
+    /// <summary>他の更新・削除が終わってから、閲覧終了した記事の既読化を直列に再開する。</summary>
+    private void ResumePendingRead() => _ = DrainPendingReadsAsync();
+    /// <summary>進行中なら同じ完了を返し、別操作中ならその終了通知で再開する。</summary>
+    private Task DrainPendingReadsAsync()
+    {
+        if (_drainingReads) return _readDrain;
+        if (!CanManageNotification || _pendingReadArticles.Count == 0) return Task.CompletedTask;
+        _drainingReads = true;
+        return _readDrain = DrainReadsCoreAsync();
+    }
+    /// <summary>閲覧を終えた記事を順に確定する。失敗を成功扱いにせず未読のまま残す。</summary>
+    private async Task DrainReadsCoreAsync()
+    {
+        // 選択 setter／表示条件の更新を完了してからAPI結果を反映する。
+        await Task.Yield();
+        try
+        {
+            while (CanManageNotification && _pendingReadArticles.TryDequeue(out var row))
+            {
+                if (!_pendingReadIds.Remove(row.Item.Notification.Id) || !row.IsUnread) continue;
+                if (!await MutateNotificationAsync(() => _notificationManagement!.SetReadAsync(new(row.Item.Notification.Id, true)), row)) break;
+            }
+        }
+        finally { _drainingReads = false; }
     }
     private void QueryChanged(bool refresh = true)
     {

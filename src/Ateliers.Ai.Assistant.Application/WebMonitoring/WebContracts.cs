@@ -5,7 +5,7 @@ namespace Ateliers.Ai.Assistant.Application.WebMonitoring;
 
 /// <summary>フィードが提供した記事。本文の別途取得は行わない。</summary>
 public sealed record FeedArticle(string Key, string Source, string? ExternalId, string? Url, string Title,
-    DateTimeOffset? PublishedAt, string Content, string InputScope);
+    DateTimeOffset? PublishedAt, string Content, string InputScope, GitHubReleaseMetadata? GitHubRelease = null);
 /// <summary>再試行に必要な原文と、各段階の確定結果。</summary>
 public sealed record CollectedArticle(Guid Id, FeedArticle Article, DateTimeOffset FetchedAt,
     string? Summary = null, string? Model = null, string? MarkdownPath = null, bool Notified = false, string? Error = null,
@@ -33,14 +33,18 @@ public sealed record CollectionRun(Guid Id, DateTimeOffset StartedAt, DateTimeOf
 /// <summary>共通通知と参照先。SourceUrl は記事 URL、FeedSourceUrl は保存済みの取得元フィード URL。</summary>
 public sealed record ArticleNotification(NotificationDto Notification, string? SourceUrl, string MarkdownPath,
     DateTimeOffset? PublishedAt = null, string? SummaryModel = null, string? FeedSourceUrl = null,
-    DateTimeOffset? FetchedAt = null, DateTimeOffset? ReadAt = null, bool IsBookmarked = false, IReadOnlyList<ArticleTag>? Tags = null);
+    DateTimeOffset? FetchedAt = null, DateTimeOffset? ReadAt = null, bool IsBookmarked = false, IReadOnlyList<ArticleTag>? Tags = null,
+    GitHubReleaseMetadata? GitHubRelease = null);
 /// <summary>一括削除の結果。失敗・中止した対象は残し、成功した対象だけを削除済みとして扱う。</summary>
 public sealed record ArticleDeletionResult(IReadOnlyList<Guid> DeletedIds, IReadOnlyList<Guid> FailedIds, bool Canceled, string Error);
 /// <summary>安全なフィード HTTP 取得と RSS / Atom 解析の境界。</summary>
-public interface IFeedSource
+public interface IFeedSource : IContentSource
 {
     /// <summary>指定フィードの正規化済み記事を取得する。</summary>
     Task<IReadOnlyList<FeedArticle>> FetchAsync(string url, CancellationToken cancellationToken);
+    /// <summary>既存 RSS アダプター・テストを共通取得ポートへ接続する。</summary>
+    Task<IReadOnlyList<FeedArticle>> IContentSource.FetchAsync(Ateliers.Ai.Assistant.Application.Worker.SourceConfiguration source, CancellationToken token) =>
+        source.Kind == ContentSourceKind.RssAtom ? FetchAsync(source.Url, token) : throw new WebMonitoringException("この取得処理は RSS / Atom 専用です。");
 }
 /// <summary>収集状態、巡回履歴、通知の永続化境界。</summary>
 public interface IWebMonitoringStore : IWebMonitoringReader

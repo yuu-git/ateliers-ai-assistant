@@ -16,7 +16,7 @@ internal sealed class ArticleRow
     public string Payload { get; set; } = "";
     /// <summary>初回取得日時。</summary>
     public long FetchedTicks { get; set; }
-    /// <summary>ユーザーが詳細を開いた UTC ticks。null は未読で、通知生成前は集計しない。</summary>
+    /// <summary>閲覧終了または明示的な既読指定の UTC ticks。null は未読で、通知生成前は集計しない。</summary>
     public long? ReadAtTicks { get; set; }
     /// <summary>手動のブックマーク。未読・タグから独立する。</summary>
     public bool IsBookmarked { get; set; }
