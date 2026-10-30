@@ -11,6 +11,9 @@ using Ateliers.Ai.Assistant.Infrastructure.Conversations;
 using Ateliers.Ai.Assistant.Infrastructure.Storage;
 using Ateliers.Ai.Assistant.Infrastructure.WebMonitoring;
 using Ateliers.Ai.Assistant.Infrastructure.Worker;
+using Ateliers.Ai.Assistant.Application.ScreenAnalysis;
+using Ateliers.Ai.Assistant.Application.Storage;
+using Ateliers.Ai.Assistant.Platform.Windows.Capture;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 
@@ -35,6 +38,13 @@ public static class WorkerHost
             // 隔離ルートの作成時刻を共通基点とし、再起動でも加速時間を巻き戻さない。
             clock = new VerificationClock(new DateTimeOffset(Directory.GetCreationTimeUtc(arguments[1])));
         }
+        else if (arguments.Length == 2 && arguments[0] == "--screen-monitor-root")
+            paths = new AppDataPaths(Path.Combine(arguments[1], "r"), Path.Combine(arguments[1], "l"));
+        else if (arguments.Length == 2 && arguments[0] == "--screen-monitor-fake-root")
+        {
+            paths = new AppDataPaths(Path.Combine(arguments[1], "r"), Path.Combine(arguments[1], "l"));
+            var fake = new VerificationAdapters(); verificationChat = fake; verificationModels = fake;
+        }
         else
 #endif
         if (arguments.Length != 0) return 2;
@@ -57,6 +67,38 @@ public static class WorkerHost
                 verificationFeed is not null ? verificationFeed : new ContentSourceRouter(new RssFeedSource(feedClient), new GitHubReleasesSource(feedClient)), new ArticleMarkdownWriter(paths), verificationChat ?? ollama, verificationModels ?? ollama,
                 FileOperationGate.ForModels(paths), diagnostics, diagnostics, clock);
             await coordinator.InitializeAsync(CancellationToken.None).ConfigureAwait(false);
+            string? selectionTitle = null;
+#if DEBUG
+            if (arguments.Length == 2 && arguments[0] is "--screen-monitor-root" or "--screen-monitor-fake-root") selectionTitle = "Ateliers Phase 7 verification " + Environment.ProcessId;
+#endif
+            using var screenHost = new CaptureWindowHost(selectionTitle);
+            var screenOllama = new OllamaChatService(chatClient);
+            var screenModelGate = FileOperationGate.ForModels(verificationChat is null ? new AppDataPaths() : paths);
+            var screen = new MultiScreenMonitorService(screenHost.CreateScope, verificationChat ?? screenOllama, verificationModels ?? screenOllama,
+                screenModelGate, new CapturedImageStore(), coordinator, diagnostics);
+            coordinator.IsModelReserved = screen.ProtectsModel;
+            coordinator.ModelLoaded = screen.TrackLoadedModel;
+            coordinator.ModelReleased = screen.ModelReleased;
+            ollama.KeepAliveSecondsForModel = model => screen.ProtectsModel(model) ? -1 : 300;
+            screenHost.StopRequested += (_, _) => screen.StopAll("トレイから全監視を停止しました");
+            screenHost.SessionLocked += (_, _) => screen.StopAll("画面ロックにより停止・明示再開が必要です");
+            screenHost.TrayUnavailable += (_, _) => screen.StopAll("トレイを表示できないため停止しました");
+            var stoppingForTrayFailure = 0;
+            async Task UpdateTray()
+            {
+                try { var list = screen.List(); var active = list.Monitors.Count(m => m.Active); await screenHost.SetStatusAsync($"監視中 {active}件 / 登録 {list.Monitors.Count}件", active > 0 || list.Monitors.Any(m => m.Picking || m.Processing)); }
+                catch (Exception exception)
+                {
+                    diagnostics.Error("screen.tray", exception);
+                    // 全停止も Changed を通知する。所有ウィンドウ自体が失われた場合の再帰を防ぐ。
+                    if (Interlocked.Exchange(ref stoppingForTrayFailure, 1) == 0)
+                    {
+                        try { screen.StopAll("トレイを表示できないため停止しました"); }
+                        finally { Volatile.Write(ref stoppingForTrayFailure, 0); }
+                    }
+                }
+            }
+            screen.Changed += (_, _) => _ = UpdateTray();
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [], ApplicationName = typeof(WorkerHost).Assembly.GetName().Name });
             builder.Logging.ClearProviders();
             builder.WebHost.ConfigureKestrel(options => { options.Listen(IPAddress.Loopback, 0); options.Limits.MaxRequestBodySize = 256 * 1024; });
@@ -90,6 +132,25 @@ public static class WorkerHost
                 }
             });
             app.MapGet("/api/v1/status", (CancellationToken token) => coordinator.StatusAsync(token));
+            app.MapGet("/api/v1/monitors", () => screen.List());
+            app.MapGet("/api/v1/monitors/{id:guid}", (Guid id) => screen.Detail(id));
+            app.MapPost("/api/v1/monitors", (CreateScreenMonitorRequest request, CancellationToken token) => screen.CreateAsync(request.Name, token));
+            app.MapPut("/api/v1/monitors/{id:guid}", (Guid id, UpdateScreenMonitorRequest request, CancellationToken token) => screen.UpdateAsync(id, request, token));
+            app.MapPost("/api/v1/monitors/{id:guid}/pick", (Guid id, CancellationToken token) => screen.PickAsync(id, token));
+            app.MapPost("/api/v1/monitors/{id:guid}/start", (Guid id, CancellationToken token) => { if (screenHost.IsSessionLocked) throw new WorkerException("画面ロック中は開始できません。"); return screen.StartAsync(id, token); });
+            app.MapPost("/api/v1/monitors/{id:guid}/stop", (Guid id) => screen.Stop(id));
+            app.MapPost("/api/v1/monitors/{id:guid}/delete", (Guid id, CancellationToken token) => screen.DeleteAsync(id, token));
+            app.MapPost("/api/v1/monitors/stop-all", () => screen.StopAll());
+#if DEBUG
+            if (arguments.Length == 2 && arguments[0] is "--screen-monitor-root" or "--screen-monitor-fake-root")
+            {
+                app.MapPost("/api/v1/screen/verification/target", async () => new { handle = (await screenHost.CreateTargetForVerificationAsync()).ToInt64() });
+                app.MapGet("/api/v1/screen/verification/owner", async () => new { handle = (await screenHost.OwnerForVerificationAsync()).ToInt64() });
+                app.MapPost("/api/v1/screen/verification/duplicate", async () => new { success = await screenHost.VerifyDuplicateTargetAsync() });
+                app.MapPost("/api/v1/monitors/{id:guid}/verification/select", async (Guid id, ScreenVerificationSelection request) => { await screenHost.SelectScopeForVerificationAsync(screen.CaptureForVerification(id), (nint)request.Handle, request.Monitor); return screen.Detail(id); });
+                app.MapPost("/api/v1/monitors/{id:guid}/verification/capture", async (Guid id) => { var image = await screen.CaptureForVerification(id).CaptureAsync(default); return new { image.Width, image.Height, image.ByteLength }; });
+            }
+#endif
             app.MapPut("/api/v1/configuration", (WorkerConfiguration configuration, CancellationToken token) => coordinator.ConfigureAsync(configuration, token));
             app.MapPost("/api/v1/fetch", (FetchRequest request, CancellationToken token) => coordinator.RequestFetchAsync(request, token));
             app.MapPost("/api/v1/ai/pause", (AiPauseRequest request, CancellationToken token) => coordinator.SetAiPausedAsync(request.Paused, token));
@@ -114,9 +175,11 @@ public static class WorkerHost
             var stopping = app.Lifetime.ApplicationStopping;
             var fetchLoop = LoopAsync(coordinator.TickFetchAsync, diagnostics, stopping);
             var aiLoop = LoopAsync(coordinator.TickAiAsync, diagnostics, stopping);
+            var screenLoop = LoopAsync(screen.TickAsync, diagnostics, stopping);
             await app.WaitForShutdownAsync().ConfigureAwait(false);
+            screen.StopAll("Worker 終了中");
             coordinator.CancelAi();
-            try { await Task.WhenAll(fetchLoop, aiLoop).WaitAsync(TimeSpan.FromSeconds(12)).ConfigureAwait(false); }
+            try { await Task.WhenAll(fetchLoop, aiLoop, screenLoop, screen.DisposeAsync().AsTask()).WaitAsync(TimeSpan.FromSeconds(12)).ConfigureAwait(false); }
             catch (Exception exception) { diagnostics.Error("worker.stop", exception); }
             await connection.RemoveAsync(coordinator.InstanceId).ConfigureAwait(false);
             diagnostics.Write(AppLogCategory.System, AppLogLevel.Information, "worker.stopped", "Worker を終了しました。");

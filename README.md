@@ -1,6 +1,30 @@
-# Ateliers AI Assistant — Phase 6: 画面キャプチャ・Vision 解析 MVP
+# Ateliers AI Assistant — MVP 完了後の複数画面監視基盤
 
-Phase 6 は利用者の機能確認を受けて完了しました。続く横断改善として、アプリ専用 Temp の容量予約・使用中保護・起動／終了清掃と、将来の複数時点画像のメモリ保持・一括使用権を追加しています。現在の一枚キャプチャはファイルへ保存せず、監視・音声・複数画像送信は追加しません。採用方式・上限・テスト手順は文書リポジトリの `features/temp-management.md` を参照してください。
+Phase 7 MVP は利用者確認を受けて完了しました。今回の拡張は同じ Worker 内で最大4件の独立監視を管理し、現在画像1枚の取得・Visionを全体1件ずつ実行します。同じ対象を二重に登録しても設定・周期・モデル・コメントは独立します。監視一覧から追加・停止・削除でき、Desktop 終了後の継続・再起動UIの復元、トレイの全停止も利用できます。
+
+現在の版は **7.1.0**。旧 Worker を停止してから更新してください。旧単一設定は既存 JSON の監視定義1件へ移行し、Worker 再起動時は全監視停止・対象再選択から始めます。本文は全監視合計約1 MiB、監視ごと200件まで。自動ロード／アンロード・AI停止・モデル排他・共有 Temp を維持します。設定UI・DB Migration・新規 NuGet・専用 Agent・画像差分・複数画像同時送信は追加していません。文書原本の `features/multi-screen-monitoring.md` に移行・API・変更ファイル・検証と制約を記録しています。
+
+```powershell
+pwsh -File tests/Verify-MultiScreenMonitor.ps1 -Model gemma3:4b -SecondModel qwen3.5:4b
+pwsh -File tests/Verify-MonitorApplicationTargets.ps1
+```
+
+## Phase 7 導入時の記録
+
+「画面監視」から Worker 所有の標準 Picker で対象を選び、モデル・周期・プロンプトを保存して監視開始します。現在画像1枚を Vision へ送り、時刻付きコメントを Markdown で表示します。初期周期60秒、候補10／30／60／120／300秒です。Desktop 終了後も継続し、UI 再起動で同じ Worker の状態とコメントを再表示します。停止は監視画面またはトレイの右クリックメニューから行います。
+
+実装版は **7.0.0**。更新前の Worker を停止してから起動し直してください。AI 一時停止中は監視の取得・解析を中止します（Web 情報取得は継続）。モデルの自動ロード・アンロードは既存の Worker 設定に従い、設定を勝手に有効化しません。ロック・対象消失で停止し、ロック解除や Worker 再起動では自動再開しません。
+
+監視画像・コメントはメモリ内のみです。設定は既存 Worker JSON に保存し、DB Migration・新規 NuGet・専用 Agent は追加していません。コメントは最新200件／本文約1 MiB、1件65536文字までです。採用構成・検証結果・制約は文書リポジトリの `features/phase7-implementation-status.md` を参照してください。
+
+```powershell
+# Debug / x64 / Unpackaged ビルド後。検証用ウィンドウ画像だけを実 Ollama へ送る。
+pwsh -File tests/Verify-ScreenMonitor.ps1 -Model gemma3:4b
+```
+
+## Phase 6 と Temp 管理の記録
+
+Phase 6 は利用者の機能確認を受けて完了しました。続く横断改善として、アプリ専用 Temp の容量予約・使用中保護・起動／終了清掃と、将来の複数時点画像のメモリ保持・一括使用権を追加しました。この横断改善では一枚キャプチャをファイルへ保存せず、監視・音声・複数画像送信は追加していません。採用方式・上限・テスト手順は文書リポジトリの `features/temp-management.md` を参照してください。
 
 ナビゲーションの「画面解析」から、対象選択 → 手動キャプチャ → プレビュー → プロンプト／モデル指定 → 解析を操作できます。Windows 標準 Picker と WGC を使い、長辺1536px以下の同じ PNG をプレビュー・Ollama へ渡します。画像・結果はメモリ内だけで保持し、定期取得・音声・履歴保存は行いません。
 
@@ -20,7 +44,7 @@ pwsh -File tests/Verify-ScreenAnalysis.ps1 -Model gemma3:4b
 
 毎回 API の先頭100件内から対象の最大10件を取得します。取得済み Release ID の編集では再要約・再通知しません。記事を明示削除した場合は、次回の取得対象に残っていれば新規として再登録できます。未読・既読、ブックマーク、タグ、削除と従来の画面を維持します。
 
-現在の実装版は **5.0.0**。旧 Worker を停止してから更新後のアプリで開始してください。DB Migration・既存 ID の変更・新規 NuGet はありません。GitHub の制限時は共有の待機期限を復元し、RSS の取得と保存済み記事の要約は継続します。認証なしのため、情報源数・手動実行に応じて長い周期を設定してください。ETag・ページング・非公開／Enterprise は対象外です。
+Phase 5 導入時の実装版は **5.0.0**。DB Migration・既存 ID の変更・新規 NuGet はありません。GitHub の制限時は共有の待機期限を復元し、RSS の取得と保存済み記事の要約は継続します。認証なしのため、情報源数・手動実行に応じて長い周期を設定してください。ETag・ページング・非公開／Enterprise は対象外です。
 
 詳しい採用仕様、変更ファイル、制約は文書リポジトリの `features/github-releases-implementation-status.md` を参照してください。下記は実サイト・通常 DB・実 Ollama を使わない画面確認です。最後のコマンドだけは明示的な公開 API 1回取得で、永続化しません。
 

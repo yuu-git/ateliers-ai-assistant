@@ -7,7 +7,8 @@ public sealed record SourceConfiguration(Guid Id, string Name, string Url, int I
     ContentSourceKind Kind = ContentSourceKind.RssAtom, bool IncludePrereleases = false);
 /// <summary>Worker だけが保存する小容量設定。Version で複数 UI の上書き競合を検出する。</summary>
 public sealed record WorkerConfiguration(long Version, string? SummaryModel, bool AllowLoad, bool AllowUnload,
-    bool AiPaused, IReadOnlyList<SourceConfiguration> Sources)
+    bool AiPaused, IReadOnlyList<SourceConfiguration> Sources, Ateliers.Ai.Assistant.Application.ScreenAnalysis.ScreenMonitorSettings? ScreenMonitor = null,
+    IReadOnlyList<Ateliers.Ai.Assistant.Application.ScreenAnalysis.ScreenMonitorDefinition>? ScreenMonitors = null)
 {
     /// <summary>モデルの自動操作を許可しない初期設定。</summary>
     public static WorkerConfiguration Default => new(0, null, false, false, false, []);

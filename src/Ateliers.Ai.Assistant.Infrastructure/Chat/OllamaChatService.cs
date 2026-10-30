@@ -17,6 +17,8 @@ public sealed class OllamaChatService : IChatService, IModelControlService
     private readonly TimeSpan _modelTimeout;
     private readonly TimeSpan _replyTimeout;
     private readonly int _keepAliveSeconds;
+    /// <summary>ホストが共有中モデルの保持期限を調整する。未指定時は従来の固定秒数。</summary>
+    public Func<string, int>? KeepAliveSecondsForModel { get; set; }
 
     /// <summary>ホスト所有の HTTP クライアントと、一覧取得・回答全体の期限を受け取る。</summary>
     /// <param name="client">ホストが所有・破棄し、接続先を設定済みの HTTP クライアント。</param>
@@ -120,7 +122,7 @@ public sealed class OllamaChatService : IChatService, IModelControlService
     /// <param name="cancellationToken">処理の中止要求を受け取るトークン。</param>
     /// <returns>操作の完了を表すタスク。</returns>
     public Task LoadModelAsync(string model, CancellationToken cancellationToken = default) =>
-        SetModelLifetimeAsync(model, _keepAliveSeconds, cancellationToken);
+        SetModelLifetimeAsync(model, KeepAliveSecondsForModel?.Invoke(model) ?? _keepAliveSeconds, cancellationToken);
 
     /// <summary>空の messages と keep_alive=0 で、指定モデルのアンロードを要求する。</summary>
     /// <param name="model">操作または送信に使用するモデル名。</param>
@@ -178,7 +180,7 @@ public sealed class OllamaChatService : IChatService, IModelControlService
                         ChatRole.User => "user",
                         ChatRole.Assistant => "assistant",
                         _ => throw new ArgumentOutOfRangeException(nameof(messages))
-                    }, message.Content, message.Image is null ? null : new[] { message.Image.Base64Data })).ToArray(), true, _keepAliveSeconds), OllamaJsonContext.Default.OllamaChatRequest)
+                    }, message.Content, message.Image is null ? null : new[] { message.Image.Base64Data })).ToArray(), true, KeepAliveSecondsForModel?.Invoke(model) ?? _keepAliveSeconds), OllamaJsonContext.Default.OllamaChatRequest)
         };
         using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead,
             cancellationToken).ConfigureAwait(false);

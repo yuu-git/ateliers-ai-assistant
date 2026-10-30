@@ -18,6 +18,16 @@ if (args.Length == 2 && args[0] == "--ollama-model")
 }
 var tests = new (string Name, Func<Task> Run)[]
 {
+    ("複数監視の独立設定・公平実行・単独削除・上限", MultiScreenMonitorTests.FairnessAndIsolation),
+    ("取消を無視する推論の実終了待ち・同一モデル保護", MultiScreenMonitorTests.CancellationRetainsSlotAndModel),
+    ("複数監視の停止再開・10分期限・共有 Temp 使用権", MultiScreenMonitorTests.PauseTimeoutAndQuota),
+    ("単一設定移行の冪等性・保存失敗・削除後復活防止", MultiScreenMonitorTests.MigrationAndPersistenceFailure),
+    ("全監視本文上限・個別件数・保存境界・設定競合", MultiScreenMonitorTests.CommentQuotaAndReload),
+    ("監視切替の下書き保持・履歴削除・古い詳細と失敗の破棄", MultiScreenMonitorTests.ViewSwitchAndHistoryEviction),
+    ("監視別の自動ロード禁止・既存モデル使用・部分失敗の分離", MultiScreenMonitorTests.ModelPolicyAndFailure),
+    ("対象消失の分離・Pickerの実完了待ち・選択中の削除拒否", MultiScreenMonitorTests.TargetAndPickerIsolation),
+    ("継続監視モデル保護・UI再接続・編集保持・旧更新破棄", ScreenMonitorTests.ModelProtectionAndReconnect),
+    ("要約と監視が共有するモデルの保持期限と停止要求", ScreenMonitorTests.SharedKeepAlive),
     ("Temp 時系列画像・近傍選択・一括使用権・メモリ上限", TempManagementTests.MemoryTimeAndBatch),
     ("Temp 世代・期限・全体容量・使用中保護", TempManagementTests.DiskQuotaAndLeases),
     ("Temp 原子的確定・所有者・UI終了・環境分離", TempManagementTests.AtomicityFailureAndSeparation),

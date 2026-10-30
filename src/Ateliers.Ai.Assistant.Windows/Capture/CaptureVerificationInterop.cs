@@ -3,12 +3,12 @@ using System;
 using System.Runtime.InteropServices;
 using Windows.Graphics.Capture;
 
-namespace Ateliers.Ai.Assistant.Desktop.Capture;
+namespace Ateliers.Ai.Assistant.Platform.Windows.Capture;
 
 public sealed partial class WindowsScreenCaptureService
 {
     /// <summary>明示起動した診断だけで既知のテスト対象を作る。製品版では標準 Picker だけを使用する。</summary>
-    internal void SelectForVerification(nint window, bool monitor)
+    public void SelectForVerification(nint window, bool monitor)
     {
         nint text = 0, factory = 0, result = 0;
         try

@@ -25,6 +25,8 @@ public sealed class ChatModelSession : IChatService, IModelLifecycleService, IMo
     private volatile bool _closing;
     private volatile bool _known;
     private Task? _shutdown;
+    /// <summary>継続監視の使用モデルを自動停止から保護する。モデル排他を確保した内側で呼ぶ。</summary>
+    public Func<string, CancellationToken, Task<bool>>? CanAutomaticallyUnloadAsync { get; set; }
 
     /// <summary>チャット通信とモデル操作の実装を受け取り、Desktop 内の共通排他セッションを構成する。</summary>
     /// <param name="chat">回答生成と利用可能モデルの一覧取得を行うサービス。</param>
@@ -111,7 +113,7 @@ public sealed class ChatModelSession : IChatService, IModelLifecycleService, IMo
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _operations.Token);
         using var operation = await EnterAsync(linked.Token).ConfigureAwait(false);
-        if (!managedOnly || IsManaged(model)) await UnloadCoreAsync(model, linked.Token).ConfigureAwait(false);
+        if ((!managedOnly || IsManaged(model)) && (!managedOnly || CanAutomaticallyUnloadAsync is null || await CanAutomaticallyUnloadAsync(model, linked.Token).ConfigureAwait(false))) await UnloadCoreAsync(model, linked.Token).ConfigureAwait(false);
         else await RefreshCoreAsync(linked.Token).ConfigureAwait(false);
     }
 
@@ -286,7 +288,7 @@ public sealed class ChatModelSession : IChatService, IModelLifecycleService, IMo
                 try
                 {
                     await RefreshCoreAsync(deadline.Token).WaitAsync(deadline.Token).ConfigureAwait(false);
-                    if (IsLoaded(model))
+                    if (IsLoaded(model) && (CanAutomaticallyUnloadAsync is null || await CanAutomaticallyUnloadAsync(model, deadline.Token).ConfigureAwait(false)))
                         await UnloadCoreAsync(model, deadline.Token).WaitAsync(deadline.Token).ConfigureAwait(false);
                 }
                 catch (Exception exception) { Trace.TraceError("Model cleanup ({0}): {1}", model, exception); }

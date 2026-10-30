@@ -54,7 +54,10 @@ internal static class UiRefactoringTests
         Check(ReferenceEquals(vm.SelectedSource, selected) && vm.Name == "情報源の未保存入力" && vm.Model == "AI の未保存入力" && vm.HasAiEdits && vm.HasSourceEdits, "poll preserves both drafts and source identity");
         api.Fetching = true; await vm.PollAsync();
         Check(vm.StatusSummary.Contains("取得: 巡回中") && vm.StatusSummary.Contains("AI:"), "source acquisition progress and AI state are separate");
+        api.Configuration = api.Configuration with { Version = api.Configuration.Version + 1, ScreenMonitor = new("vision", 30) };
+        await vm.PollAsync();
         await vm.SaveOptionsCommand.ExecuteAsync();
+        Check(!vm.HasError && api.Configuration.ScreenMonitor?.IntervalSeconds == 30, "screen-only save rebases version without losing other drafts or screen settings");
         Check(api.Configuration.Sources[0].Name == "Source A" && vm.Name == "情報源の未保存入力" && vm.HasSourceEdits && !vm.HasAiEdits, "AI save does not save or discard source draft");
         vm.Model = "次の AI 入力";
         await vm.SaveSourceCommand.ExecuteAsync();

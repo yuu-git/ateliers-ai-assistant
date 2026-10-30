@@ -160,6 +160,11 @@ public sealed partial class WorkerViewModel : ObservableObject, IDisposable
         var revision = ++_refreshRevision;
         var status = await _client.GetStatusAsync(_lifetime.Token);
         if (_disposed || revision != _refreshRevision) return;
+        // 監視画面だけの設定保存では、編集中の Web / AI 入力を変えず基準版を追従する。
+        if (_loadedSettings && _configuration.SummaryModel == status.Configuration.SummaryModel &&
+            _configuration.AllowLoad == status.Configuration.AllowLoad && _configuration.AllowUnload == status.Configuration.AllowUnload &&
+            _configuration.AiPaused == status.Configuration.AiPaused && _configuration.Sources.SequenceEqual(status.Configuration.Sources))
+            _configuration = _configuration with { Version = status.Configuration.Version, ScreenMonitor = status.Configuration.ScreenMonitor, ScreenMonitors = status.Configuration.ScreenMonitors };
         var preserveInitialAiDraft = !_loadedSettings && _aiEdited;
         if (!_loadedSettings) applySettings = true;
         if (_loadedSettings && _configuration.AiPaused != status.Configuration.AiPaused)

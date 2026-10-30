@@ -7,6 +7,7 @@
   <Project Path="src/Ateliers.Ai.Assistant.Core/Ateliers.Ai.Assistant.Core.csproj" />
   <Project Path="src/Ateliers.Ai.Assistant.Application/Ateliers.Ai.Assistant.Application.csproj" />
   <Project Path="src/Ateliers.Ai.Assistant.Infrastructure/Ateliers.Ai.Assistant.Infrastructure.csproj" />
+  <Project Path="src/Ateliers.Ai.Assistant.Windows/Ateliers.Ai.Assistant.Windows.csproj" />
   <Project Path="src/Ateliers.Ai.Assistant.Worker/Ateliers.Ai.Assistant.Worker.csproj" />
   <Project Path="tests/Ateliers.Ai.Assistant.Desktop.Tests/Ateliers.Ai.Assistant.Desktop.Tests.csproj" />
   <Project Path="src/Ateliers.Ai.Assistant.Desktop/Ateliers.Ai.Assistant.Desktop.csproj">

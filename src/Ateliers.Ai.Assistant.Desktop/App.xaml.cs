@@ -40,6 +40,12 @@ public partial class App : Microsoft.UI.Xaml.Application
     {
 #if DEBUG
         var arguments = Environment.GetCommandLineArgs();
+        var monitorVerifyIndex = Array.IndexOf(arguments, "--verify-screen-monitor");
+        if (monitorVerifyIndex >= 0 && monitorVerifyIndex + 2 < arguments.Length)
+        {
+            _window = Diagnostics.ScreenWorkerVerification.CreateMonitor(arguments[monitorVerifyIndex + 1], arguments[monitorVerifyIndex + 2]);
+            _window.Activate(); return;
+        }
         var screenIndex = Array.IndexOf(arguments, "--verify-screen-analysis");
         if (screenIndex >= 0 && screenIndex + 1 < arguments.Length)
         {
@@ -131,6 +137,12 @@ public partial class App : Microsoft.UI.Xaml.Application
             new FixedDataFolderOpener(paths).OpenAsync);
         var workerHttp = new HttpClient(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
         var api = new WorkerApiClient(workerHttp, new WorkerConnectionFiles(paths));
+        var otherEnvironment = AppDataPaths.CurrentEnvironment == Ateliers.Ai.Assistant.Application.Storage.AppDataEnvironment.Debug
+            ? Ateliers.Ai.Assistant.Application.Storage.AppDataEnvironment.Release : Ateliers.Ai.Assistant.Application.Storage.AppDataEnvironment.Debug;
+        var otherApi = new WorkerApiClient(workerHttp, new WorkerConnectionFiles(new AppDataPaths(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), otherEnvironment)));
+        session.CanAutomaticallyUnloadAsync = async (model, token) => await api.CanAutomaticallyUnloadAsync(model, token).ConfigureAwait(false)
+            && await otherApi.CanAutomaticallyUnloadAsync(model, token).ConfigureAwait(false);
         var web = new WebMonitoringViewModel(api, api, session, session, settings, diagnostics, Dispatch, new ArticleLinkOpener(paths).OpenAsync);
         var worker = new WorkerViewModel(api, new WorkerLauncher(paths), session, diagnostics) { RefreshResultsAsync = web.RefreshFeedAsync };
         var logs = new LogsViewModel(new FileAppLogReader(paths), async text =>
@@ -146,6 +158,7 @@ public partial class App : Microsoft.UI.Xaml.Application
                 if (status.Configuration.AiPaused) throw new InvalidOperationException("AI は一時停止中です。再開してから解析してください。");
             }), Dispatch);
         main.InitializeScreenAnalysis(screen);
+        main.InitializeScreenMonitor(new ScreenMonitorViewModel(api, session));
         main.ReleaseTemporaryDataAsync = () => temporaryFiles.DisposeAsync().AsTask();
         _window = main;
         _window.Closed += (_, _) => { temporaryFiles.Dispose(); diagnostics.Write(AppLogCategory.System, AppLogLevel.Information, "ui.stopped", "Desktop を終了しました。Worker は継続します。"); _chatClient.Dispose(); workerHttp.Dispose(); };

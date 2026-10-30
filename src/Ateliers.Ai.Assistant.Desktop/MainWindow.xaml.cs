@@ -30,6 +30,14 @@ public sealed partial class MainWindow : Window
     public LogsViewModel? LogsViewModel { get; }
     /// <summary>手動キャプチャと画像一枚の解析。通常ホストだけで構成する。</summary>
     public ScreenAnalysisViewModel? ScreenViewModel { get; private set; }
+    /// <summary>Worker 所有の継続監視。UI を閉じても停止しない。</summary>
+    public ScreenMonitorViewModel? MonitorViewModel { get; private set; }
+    /// <summary>監視表示だけを接続する。終了時は表示資源を解放する。</summary>
+    public void InitializeScreenMonitor(ScreenMonitorViewModel viewModel)
+    {
+        MonitorViewModel = viewModel; MonitorPanel.Initialize(viewModel);
+        Closed += (_, _) => { viewModel.Dispose(); MonitorPanel.Dispose(); };
+    }
     /// <summary>Host が所有する一時データを通常終了前に解放する。清掃失敗で終了を妨げない。</summary>
     public Func<Task>? ReleaseTemporaryDataAsync { get; set; }
     /// <summary>ウィンドウ生成後に HWND を必要とするキャプチャサービスを接続する。</summary>
@@ -69,6 +77,8 @@ public sealed partial class MainWindow : Window
     internal void ScrollSettingsForVerification(bool bottom) => SettingsPanel.ChangeView(null, bottom ? double.MaxValue : 0, null, true);
     /// <summary>実画面の診断で Markdown と画像の DOM を確認する。</summary>
     internal Controls.ChatTranscriptView TranscriptForVerification => Transcript;
+    /// <summary>継続監視の実表示を通常終了処理と合わせて検証する。</summary>
+    internal Controls.ScreenMonitorView MonitorForVerification => MonitorPanel;
     /// <summary>通知の原文・安全化・選択変更を実 WebView2 で検証する。</summary>
     internal Controls.ChatTranscriptView NotificationPreviewForVerification => WorkerViewModel is null ? NotificationPreview : ModernWeb.PreviewForVerification;
     /// <summary>実 ListView の選択を通して通知本文の表示を確認する。</summary>
@@ -136,7 +146,7 @@ public sealed partial class MainWindow : Window
                 ModernWeb.NavigateToSettings = () => MainNavigation.SelectedItem = MainNavigation.MenuItems.OfType<NavigationViewItem>().First(item => (string?)item.Tag == "Settings");
             }
             _workerTimer = DispatcherQueue.CreateTimer(); _workerTimer.Interval = TimeSpan.FromSeconds(5);
-            _workerTimer.Tick += async (_, _) => await WorkerViewModel.PollAsync();
+            _workerTimer.Tick += async (_, _) => { await WorkerViewModel.PollAsync(); if (MonitorViewModel is not null) await MonitorViewModel.PollAsync(); };
         }
         else ModernWeb.PreviewControl.RenderingEnabled = false;
         ViewModel.PropertyChanged += ChatPropertyChanged;
@@ -206,9 +216,12 @@ public sealed partial class MainWindow : Window
             WebPanel.Visibility = tag == "Web" ? Visibility.Visible : Visibility.Collapsed;
             LogsPanel.Visibility = tag == "Logs" ? Visibility.Visible : Visibility.Collapsed;
             ScreenPanel.Visibility = tag == "Screen" ? Visibility.Visible : Visibility.Collapsed;
+            MonitorPanel.Visibility = tag == "Monitor" ? Visibility.Visible : Visibility.Collapsed;
             _previousNavigation = args.SelectedItem;
             if (tag == "Models") await ModelViewModel.RefreshCommand.ExecuteAsync();
             if (tag == "Screen" && ScreenViewModel is not null && ScreenViewModel.Models.Count == 0) await ScreenViewModel.RefreshModelsCommand.ExecuteAsync();
+            if (tag == "Monitor" && MonitorViewModel is not null) await MonitorViewModel.RefreshCommand.ExecuteAsync();
+            if (tag == "Settings" && WorkerViewModel is not null) await WorkerViewModel.PollAsync();
             if (tag == "Web" && WebViewModel is not null)
             { if (WorkerViewModel is null) await WebViewModel.RefreshCommand.ExecuteAsync(); else await WorkerViewModel.PollAsync(); }
             if (tag == "Logs" && LogsViewModel is not null) await LogsViewModel.RefreshAsync();
@@ -229,6 +242,7 @@ public sealed partial class MainWindow : Window
         await SettingsViewModel.InitializeAsync();
         await ViewModel.RefreshSavedConversationsAsync();
         if (WorkerViewModel is not null) { await WorkerViewModel.InitializeAsync(); _workerTimer?.Start(); }
+        if (MonitorViewModel is not null) await MonitorViewModel.PollAsync();
         _initializing = false;
 #if DEBUG
         _initialized.TrySetResult(true);

@@ -30,7 +30,17 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
     /// <summary>API 契約版。不一致のクライアントによる書込を拒否する。</summary>
     public const int Protocol = 1;
     /// <summary>ホストと UI が表示する実装版。</summary>
-    public const string ImplementationVersion = "5.0.0";
+    public const string ImplementationVersion = "7.1.0";
+    /// <summary>監視集合の予約により、要約の後片付けでも使用中モデルを保護する。</summary>
+    public Func<string, bool>? IsModelReserved { get; set; }
+    /// <summary>本 Worker がロードしたモデルを監視集合へ引き継ぐ。</summary>
+    public Action<string>? ModelLoaded { get; set; }
+    /// <summary>要約が解放を確認したモデルを共有追跡から除く。</summary>
+    public Action<string>? ModelReleased { get; set; }
+    /// <summary>監視側が常に保存済みの AI 方針を参照する。UI の編集中値は含まない。</summary>
+    public WorkerConfiguration Configuration => _configuration;
+    /// <summary>保存確定後の AI 中止通知。監視は画像取得も中止する。</summary>
+    public event EventHandler? ConfigurationChanged;
 
     /// <summary>設定・予定を読み、強制終了時の処理中記事と取得要求を回復する。</summary>
     public async Task InitializeAsync(CancellationToken token)
@@ -62,14 +72,20 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
     public Task<WorkerConfiguration> ConfigureAsync(WorkerConfiguration requested, CancellationToken token) => UpdateConfigurationAsync(requested, null, token);
     /// <summary>保存済みの他設定を維持して AI の一時停止だけを変更する。</summary>
     public Task<WorkerConfiguration> SetAiPausedAsync(bool paused, CancellationToken token) => UpdateConfigurationAsync(null, paused, token);
-    private async Task<WorkerConfiguration> UpdateConfigurationAsync(WorkerConfiguration? requested, bool? paused, CancellationToken token)
+    /// <summary>最新設定と監視定義を同じ設定排他内で合成する。</summary>
+    public Task<WorkerConfiguration> UpdateMonitorsAsync(Func<IReadOnlyList<Ateliers.Ai.Assistant.Application.ScreenAnalysis.ScreenMonitorDefinition>, IReadOnlyList<Ateliers.Ai.Assistant.Application.ScreenAnalysis.ScreenMonitorDefinition>> update, CancellationToken token) =>
+        UpdateConfigurationAsync(null, null, token, config => config with { ScreenMonitors = update(config.ScreenMonitors ?? []), ScreenMonitor = null });
+    private async Task<WorkerConfiguration> UpdateConfigurationAsync(WorkerConfiguration? requested, bool? paused, CancellationToken token, Func<WorkerConfiguration, WorkerConfiguration>? mutation = null)
     {
         await _configurationGate.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            requested = Validate(requested ?? (_configuration with { AiPaused = paused ?? _configuration.AiPaused }));
+            requested = Validate(mutation is null ? requested ?? (_configuration with { AiPaused = paused ?? _configuration.AiPaused }) : mutation(_configuration));
+            if (mutation is null && _configuration.ScreenMonitors is { } currentMonitors && (requested.ScreenMonitors is null || !requested.ScreenMonitors.SequenceEqual(currentMonitors)))
+                throw new WorkerException("監視定義は監視 ID を指定した画面から変更してください。");
             var previous = _configuration;
             _configuration = await settings.SaveConfigurationAsync(requested with { Sources = requested.Sources.Where(source => !source.Deleted).ToArray() }, token).ConfigureAwait(false);
+            ConfigurationChanged?.Invoke(this, EventArgs.Empty);
             Interlocked.Exchange(ref _nextAiCheckTicks, 0);
             if (_configuration.AiPaused || previous.SummaryModel != requested.SummaryModel ||
                 previous.Sources.Any(old => !requested.Sources.Any(source => source.Id == old.Id && !source.Deleted && source.Url == old.Url)))
@@ -257,6 +273,7 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
                         newlyLoaded = (await models.GetLoadedModelsAsync(operation).ConfigureAwait(false)).Any(entry => ChatModelSession.SameModel(entry.Name, model));
                         if (!newlyLoaded) throw new WorkerException("モデルのロードを確認できませんでした。");
                         loadedModel = model;
+                        ModelLoaded?.Invoke(model);
                     }
                     if (_configuration.AiPaused) return;
                     began = await articles.TryBeginAsync(item.Id, operation).ConfigureAwait(false);
@@ -294,9 +311,9 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
                 catch (Exception exception) { _recoverArticles = true; diagnostics.Error("worker.queue.cleanup", exception); }
                 finally
                 {
-                    if (newlyLoaded && loadedModel is not null && _configuration.AllowUnload && lease is not null)
+                    if (newlyLoaded && loadedModel is not null && _configuration.AllowUnload && lease is not null && IsModelReserved?.Invoke(loadedModel) != true)
                     {
-                        try { await models.UnloadModelAsync(loadedModel, cleanup.Token).ConfigureAwait(false); }
+                        try { await models.UnloadModelAsync(loadedModel, cleanup.Token).ConfigureAwait(false); ModelReleased?.Invoke(loadedModel); }
                         catch (Exception exception) { diagnostics.Error("worker.model.release", exception); }
                     }
                     lease?.Dispose(); _aiCancellation = null; _summarizing = false;
@@ -340,6 +357,13 @@ public sealed class WorkerCoordinator(IWorkerStateStore settings, IBackgroundArt
     /// <summary>設定を検証して、外部 URL の正規化とスケジュールの上限を適用する。</summary>
     public static WorkerConfiguration Validate(WorkerConfiguration value)
     {
+        if (value.ScreenMonitor is not null) Ateliers.Ai.Assistant.Application.ScreenAnalysis.ScreenMonitorSettings.Validate(value.ScreenMonitor);
+        if (value.ScreenMonitors is { } monitors)
+        {
+            if (monitors.Count > Ateliers.Ai.Assistant.Application.ScreenAnalysis.ScreenMonitorLimits.MaximumMonitors || monitors.Any(item => item is null || item.MonitorId == Guid.Empty || string.IsNullOrWhiteSpace(item.Name) || item.Name.Trim().Length > 64 || item.Name.Any(char.IsControl) || item.Revision < 0) || monitors.Select(item => item.MonitorId).Distinct().Count() != monitors.Count)
+                throw new WorkerException("監視は最大4件、名前は制御文字なしの1〜64文字、ID は重複不可です。");
+            foreach (var item in monitors) Ateliers.Ai.Assistant.Application.ScreenAnalysis.ScreenMonitorSettings.Validate(item.Settings);
+        }
         if (value.Version < 0 || value.SummaryModel?.Length > 512 || value.Sources is null || value.Sources.Count > 50 ||
             value.Sources.Any(source => source is null || source.Id == Guid.Empty || string.IsNullOrWhiteSpace(source.Name) || source.Name.Length > 120 ||
                 source.IntervalMinutes is < 5 or > 10080 || string.IsNullOrWhiteSpace(source.Url) || source.Url.Length > 4096) || value.Sources.Select(source => source.Id).Distinct().Count() != value.Sources.Count)

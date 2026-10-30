@@ -40,6 +40,7 @@
     <ProjectCapability Include="Msix" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\Ateliers.Ai.Assistant.Windows\Ateliers.Ai.Assistant.Windows.csproj" />
     <ProjectReference Include="..\Ateliers.Ai.Assistant.Application\Ateliers.Ai.Assistant.Application.csproj" />
     <ProjectReference Include="..\Ateliers.Ai.Assistant.Infrastructure\Ateliers.Ai.Assistant.Infrastructure.csproj" />
     <ProjectReference Include="..\Ateliers.Ai.Assistant.Worker\Ateliers.Ai.Assistant.Worker.csproj" ReferenceOutputAssembly="false" GlobalPropertiesToRemove="RuntimeIdentifier;SelfContained" />

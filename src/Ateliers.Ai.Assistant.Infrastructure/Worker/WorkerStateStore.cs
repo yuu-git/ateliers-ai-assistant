@@ -4,6 +4,7 @@ using Ateliers.Ai.Assistant.Application.Settings;
 using Ateliers.Ai.Assistant.Application.WebMonitoring;
 using Ateliers.Ai.Assistant.Application.Worker;
 using Ateliers.Ai.Assistant.Infrastructure.WebMonitoring;
+using Ateliers.Ai.Assistant.Application.ScreenAnalysis;
 
 namespace Ateliers.Ai.Assistant.Infrastructure.Worker;
 
@@ -18,12 +19,19 @@ public sealed class WorkerStateStore(IApplicationPaths paths, SqliteWebMonitorin
         await _gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
-            if (File.Exists(FilePath)) return await ReadAsync(token).ConfigureAwait(false);
+            if (File.Exists(FilePath))
+            {
+                var current = WorkerCoordinator.Validate(await ReadAsync(token).ConfigureAwait(false));
+                if (current.ScreenMonitors is not null) return current;
+                var migrated = current with { Version = checked(current.Version + 1), ScreenMonitor = null,
+                    ScreenMonitors = current.ScreenMonitor is { } old ? [new(Guid.NewGuid(), "画面監視1", old)] : [] };
+                await WriteAsync(migrated, token).ConfigureAwait(false); return migrated;
+            }
             var previous = await legacy.LoadAsync(token).ConfigureAwait(false);
             var sources = new List<SourceConfiguration>();
             if (!string.IsNullOrWhiteSpace(previous.WebFeedUrl))
                 sources.Add(new(Guid.NewGuid(), "Phase 3 の情報源", FeedIdentity.Source(previous.WebFeedUrl), 60, false));
-            var initial = WorkerConfiguration.Default with { SummaryModel = previous.WebSummaryModel, Sources = sources };
+            var initial = WorkerConfiguration.Default with { SummaryModel = previous.WebSummaryModel, Sources = sources, ScreenMonitors = [] };
             await WriteAsync(initial, token).ConfigureAwait(false);
             return initial;
         }
@@ -61,7 +69,9 @@ public sealed class WorkerStateStore(IApplicationPaths paths, SqliteWebMonitorin
         var temporary = FilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            await File.WriteAllTextAsync(temporary, JsonSerializer.Serialize(configuration, WorkerJsonContext.Default.WorkerConfiguration), token).ConfigureAwait(false);
+            var json = JsonSerializer.SerializeToUtf8Bytes(configuration, WorkerJsonContext.Default.WorkerConfiguration);
+            if (json.Length > 256 * 1024) throw new StorageException("Worker 設定の合計が256 KiBを超えています。既存設定は変更していません。");
+            await File.WriteAllBytesAsync(temporary, json, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested(); File.Move(temporary, FilePath, true);
         }
         finally { try { File.Delete(temporary); } catch (IOException) { } }

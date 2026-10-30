@@ -13,11 +13,11 @@ namespace Ateliers.Ai.Assistant.Desktop.Images;
 public static class ClipboardImageService
 {
     /// <summary>正規化後の画像の長辺に許容する最大ピクセル数。</summary>
-    public const uint MaximumEdge = 1536;
+    public const uint MaximumEdge = Ateliers.Ai.Assistant.Platform.Windows.Images.WindowsImageNormalizer.MaximumEdge;
     /// <summary>デコード前に受け入れる元画像の最大バイト数（32 MiB）。</summary>
-    public const ulong MaximumSourceBytes = 32 * 1024 * 1024;
+    public const ulong MaximumSourceBytes = Ateliers.Ai.Assistant.Platform.Windows.Images.WindowsImageNormalizer.MaximumSourceBytes;
     /// <summary>デコード対象に許容する元画像の最大画素数。</summary>
-    public const ulong MaximumSourcePixels = 40_000_000;
+    public const ulong MaximumSourcePixels = Ateliers.Ai.Assistant.Platform.Windows.Images.WindowsImageNormalizer.MaximumSourcePixels;
 
     /// <summary>クリップボードの Bitmap を読み取り、メモリ内の PNG 添付へ正規化する。</summary>
     /// <param name="content">取得済みのクリップボード内容。Bitmap 形式を含むこと。</param>
@@ -36,31 +36,8 @@ public static class ClipboardImageService
     /// <param name="stream">デコードする画像のランダムアクセスストリーム。呼び出し元が破棄する。</param>
     /// <param name="cancellationToken">処理の中止要求を受け取るトークン。</param>
     /// <returns>メモリ内で保持する正規化済み PNG 添付。</returns>
-    internal static async Task<ChatImage> NormalizeAsync(IRandomAccessStream stream, CancellationToken cancellationToken)
-    {
-        if (stream.Size == 0 || stream.Size > MaximumSourceBytes)
-            throw new InvalidOperationException("貼り付け元の画像は 32 MiB 以下にしてください。");
-        var decoder = await BitmapDecoder.CreateAsync(stream).AsTask(cancellationToken);
-        if ((ulong)decoder.PixelWidth * decoder.PixelHeight > MaximumSourcePixels)
-            throw new InvalidOperationException("貼り付け元の画像が大きすぎます。4000万画素以下にしてください。");
-        var scale = Math.Min(1d, MaximumEdge / (double)Math.Max(decoder.PixelWidth, decoder.PixelHeight));
-        var width = Math.Max(1u, (uint)Math.Round(decoder.PixelWidth * scale));
-        var height = Math.Max(1u, (uint)Math.Round(decoder.PixelHeight * scale));
-        var transform = new BitmapTransform { ScaledWidth = width, ScaledHeight = height, InterpolationMode = BitmapInterpolationMode.Fant };
-        var pixels = await decoder.GetPixelDataAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Straight, transform,
-            ExifOrientationMode.RespectExifOrientation, ColorManagementMode.ColorManageToSRgb).AsTask(cancellationToken);
-        if (decoder.OrientedPixelWidth != decoder.PixelWidth) (width, height) = (height, width);
-        using var output = new InMemoryRandomAccessStream();
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output).AsTask(cancellationToken);
-        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Straight, width, height, 96, 96, pixels.DetachPixelData());
-        await encoder.FlushAsync().AsTask(cancellationToken);
-        if (output.Size > ChatImage.MaximumBytes) throw new InvalidOperationException("縮小後の画像が 12 MiB を超えています。");
-        using var reader = new DataReader(output.GetInputStreamAt(0));
-        await reader.LoadAsync((uint)output.Size).AsTask(cancellationToken);
-        var bytes = new byte[(int)output.Size];
-        reader.ReadBytes(bytes);
-        return new ChatImage(bytes, (int)width, (int)height);
-    }
+    internal static Task<ChatImage> NormalizeAsync(IRandomAccessStream stream, CancellationToken cancellationToken)
+        => Ateliers.Ai.Assistant.Platform.Windows.Images.WindowsImageNormalizer.NormalizeAsync(stream, cancellationToken);
 
     /// <summary>添付 PNG から幅240pxをデコード幅に指定した WinUI のプレビュー画像を作る。</summary>
     /// <param name="image">メモリ内で保持する正規化済み PNG 添付。</param>
