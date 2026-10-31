@@ -34,4 +34,4 @@ namespace Ateliers.Ai.Assistant.Infrastructure.Worker;
 [JsonSerializable(typeof(UpdateScreenMonitorRequest))]
 public partial class WorkerJsonContext : JsonSerializerContext { }
 /// <summary>同じユーザーだけが読める loopback 接続情報。ログや API 応答へは出さない。</summary>
-public sealed record WorkerEndpoint(int Protocol, string Version, string Address, string Token, Guid InstanceId);
+public sealed record WorkerEndpoint(int Protocol, string Version, string Address, string Token, Guid InstanceId, int ProcessId = 0);

@@ -7,6 +7,8 @@ namespace Ateliers.Ai.Assistant.Infrastructure.Worker;
 
 public sealed partial class WorkerApiClient : IMultiScreenMonitorClient
 {
+    /// <summary>対象選択の明示要求を送る直前に、Desktop が当該 Worker だけへ前面表示を許可する。</summary>
+    public Action<int>? AllowPickerForeground { get; init; }
     /// <inheritdoc/>
     public Task<ScreenMonitorList> ListMonitorsAsync(CancellationToken token = default) => SendAsync(HttpMethod.Get, "monitors", null, WorkerJsonContext.Default.ScreenMonitorList, token);
     /// <inheritdoc/>

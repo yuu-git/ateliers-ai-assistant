@@ -170,7 +170,7 @@ public static class WorkerHost
             await app.StartAsync().ConfigureAwait(false);
             var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
             var uri = new Uri(address); expectedHost = uri.Authority;
-            await connection.PublishAsync(new(WorkerCoordinator.Protocol, WorkerCoordinator.ImplementationVersion, address.TrimEnd('/') + "/", secret, coordinator.InstanceId), CancellationToken.None).ConfigureAwait(false);
+            await connection.PublishAsync(new(WorkerCoordinator.Protocol, WorkerCoordinator.ImplementationVersion, address.TrimEnd('/') + "/", secret, coordinator.InstanceId, Environment.ProcessId), CancellationToken.None).ConfigureAwait(false);
             diagnostics.Write(AppLogCategory.System, AppLogLevel.Information, "api.started", "認証付き loopback API の準備が完了しました。");
             var stopping = app.Lifetime.ApplicationStopping;
             var fetchLoop = LoopAsync(coordinator.TickFetchAsync, diagnostics, stopping);

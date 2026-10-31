@@ -55,6 +55,12 @@ public sealed partial class WorkerApiClient(HttpClient client, WorkerConnectionF
         try
         {
             var endpoint = await connection.ReadAsync(deadline.Token).ConfigureAwait(false);
+            if (method == HttpMethod.Post && route.StartsWith("monitors/", StringComparison.Ordinal) && route.EndsWith("/pick", StringComparison.Ordinal) && AllowPickerForeground is { } allowForeground)
+            {
+                if (endpoint.ProcessId <= 0) throw new WorkerException("対象選択に必要な接続情報がありません。Worker を再起動してください。");
+                // この要求で使う接続情報と同じプロセスに限定する。全プロセスへは許可しない。
+                allowForeground(endpoint.ProcessId);
+            }
             using var request = new HttpRequestMessage(method, new Uri(new Uri(endpoint.Address), "api/v1/" + route)) { Content = content };
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", endpoint.Token);
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);

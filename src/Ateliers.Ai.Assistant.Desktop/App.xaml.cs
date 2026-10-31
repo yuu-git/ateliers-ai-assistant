@@ -40,6 +40,12 @@ public partial class App : Microsoft.UI.Xaml.Application
     {
 #if DEBUG
         var arguments = Environment.GetCommandLineArgs();
+        var pickerVerifyIndex = Array.IndexOf(arguments, "--verify-monitor-picker");
+        if (pickerVerifyIndex >= 0 && pickerVerifyIndex + 2 < arguments.Length)
+        {
+            _window = Diagnostics.ScreenWorkerVerification.CreateMonitor(arguments[pickerVerifyIndex + 1], arguments[pickerVerifyIndex + 2], pickerOnly: true);
+            _window.Activate(); return;
+        }
         var monitorVerifyIndex = Array.IndexOf(arguments, "--verify-screen-monitor");
         if (monitorVerifyIndex >= 0 && monitorVerifyIndex + 2 < arguments.Length)
         {
@@ -136,7 +142,7 @@ public partial class App : Microsoft.UI.Xaml.Application
         var settings = new SettingsViewModel(paths, new JsonUserSettingsStore(paths, diagnostics), diagnostics,
             new FixedDataFolderOpener(paths).OpenAsync);
         var workerHttp = new HttpClient(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
-        var api = new WorkerApiClient(workerHttp, new WorkerConnectionFiles(paths));
+        var api = new WorkerApiClient(workerHttp, new WorkerConnectionFiles(paths)) { AllowPickerForeground = Capture.PickerForegroundPermission.Allow };
         var otherEnvironment = AppDataPaths.CurrentEnvironment == Ateliers.Ai.Assistant.Application.Storage.AppDataEnvironment.Debug
             ? Ateliers.Ai.Assistant.Application.Storage.AppDataEnvironment.Release : Ateliers.Ai.Assistant.Application.Storage.AppDataEnvironment.Debug;
         var otherApi = new WorkerApiClient(workerHttp, new WorkerConnectionFiles(new AppDataPaths(

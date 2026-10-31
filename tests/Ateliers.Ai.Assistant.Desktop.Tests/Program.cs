@@ -28,6 +28,7 @@ var tests = new (string Name, Func<Task> Run)[]
     ("対象消失の分離・Pickerの実完了待ち・選択中の削除拒否", MultiScreenMonitorTests.TargetAndPickerIsolation),
     ("継続監視モデル保護・UI再接続・編集保持・旧更新破棄", ScreenMonitorTests.ModelProtectionAndReconnect),
     ("要約と監視が共有するモデルの保持期限と停止要求", ScreenMonitorTests.SharedKeepAlive),
+    ("監視Pickerの前面許可・要求順序・Worker再起動・拒否時の保護", ScreenMonitorTests.PickerForegroundGrant),
     ("Temp 時系列画像・近傍選択・一括使用権・メモリ上限", TempManagementTests.MemoryTimeAndBatch),
     ("Temp 世代・期限・全体容量・使用中保護", TempManagementTests.DiskQuotaAndLeases),
     ("Temp 原子的確定・所有者・UI終了・環境分離", TempManagementTests.AtomicityFailureAndSeparation),

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using Ateliers.Ai.Assistant.Application.ScreenAnalysis;
+using Ateliers.Ai.Assistant.Application.Worker;
 using Ateliers.Ai.Assistant.Core.Chat;
 
 namespace Ateliers.Ai.Assistant.Platform.Windows.Capture;
@@ -43,8 +44,13 @@ public sealed class CaptureWindowHost : IDisposable
         {
             return await InvokeAsync(async () =>
             {
-                ShowWindow(_window, 5); SetForegroundWindow(_window);
-                try { return await capture.PickAsync(token, _lifetime.Token); }
+                ShowWindow(_window, 5);
+                try
+                {
+                    if (!SetForegroundWindow(_window) && GetForegroundWindow() != _window)
+                        throw new WorkerException("対象選択を前面に表示できません。アプリ画面を前面にして「対象を選択」を押し直してください。");
+                    return await capture.PickAsync(token, _lifetime.Token);
+                }
                 finally { ShowWindow(_window, 0); }
             }).ConfigureAwait(false);
         }
@@ -190,6 +196,7 @@ public sealed class CaptureWindowHost : IDisposable
         return Task.FromResult(target);
     });
 #endif
+    [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
     private delegate nint WindowProcedure(nint window, uint message, nuint wParam, nint lParam);
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] private struct WindowClass { public uint Size, Style; public WindowProcedure Procedure; public int ClassExtra, WindowExtra; public nint Instance, Icon, Cursor, Background; public string? MenuName, ClassName; public nint SmallIcon; }
     [StructLayout(LayoutKind.Sequential)] private struct Point { public int X, Y; }

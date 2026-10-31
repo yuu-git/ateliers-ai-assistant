@@ -7,11 +7,66 @@ using Ateliers.Ai.Assistant.Application.Worker;
 using Ateliers.Ai.Assistant.Core.Chat;
 using Ateliers.Ai.Assistant.Desktop.ViewModels;
 using Ateliers.Ai.Assistant.Infrastructure.Chat;
+using Ateliers.Ai.Assistant.Infrastructure.Worker;
+using Ateliers.Ai.Assistant.Infrastructure.Storage;
 
 namespace Ateliers.Ai.Assistant.Desktop.Tests;
 
 internal static class ScreenMonitorTests
 {
+    public static async Task PickerForegroundGrant()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "ateliers-picker-grant-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var connection = new WorkerConnectionFiles(new AppDataPaths(Path.Combine(root, "r"), Path.Combine(root, "l")));
+            var handler = new PickerGrantHandler(); using var http = new HttpClient(handler);
+            var expectedPid = 1234; var deny = false;
+            var api = new WorkerApiClient(http, connection) { AllowPickerForeground = pid =>
+            {
+                Check(pid == expectedPid && handler.Granted is null, "only the current endpoint process receives foreground permission");
+                if (deny) throw new WorkerException("foreground denied");
+                handler.Granted = pid;
+            } };
+            async Task Publish(int pid) => await connection.PublishAsync(new(WorkerCoordinator.Protocol, WorkerCoordinator.ImplementationVersion,
+                "http://127.0.0.1:12345/", new string('A', 64), Guid.NewGuid(), pid), default);
+            await Publish(expectedPid);
+            await api.ListMonitorsAsync(); Check(handler.Granted is null, "polling never grants foreground permission");
+            await api.PickMonitorAsync(Guid.NewGuid()); Check(handler.Granted == expectedPid, "grant precedes the pick HTTP request");
+            handler.Granted = null; expectedPid = 5678; await Publish(expectedPid); await api.PickMonitorAsync(Guid.NewGuid());
+            Check(handler.Granted == expectedPid, "Worker restart refreshes the target process on every pick");
+            var sent = handler.Requests; handler.Granted = null; deny = true;
+            try { await api.PickMonitorAsync(Guid.NewGuid()); throw new InvalidOperationException("denial was ignored"); } catch (WorkerException) { }
+            Check(handler.Requests == sent, "denied grant never opens an unfocused picker");
+            await Publish(0);
+            try { await api.PickMonitorAsync(Guid.NewGuid()); throw new InvalidOperationException("legacy endpoint was accepted"); } catch (WorkerException exception) { Check(exception.Message.Contains("再起動"), "old Worker prompts restart"); }
+            Check(handler.Requests == sent, "missing PID cannot grant every process or open a picker");
+        }
+        finally
+        {
+            var resolved = Path.GetFullPath(root);
+            if (Path.GetDirectoryName(resolved) != Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) || !Path.GetFileName(resolved).StartsWith("ateliers-picker-grant-", StringComparison.Ordinal)) throw new InvalidOperationException("Unsafe root");
+            if (Directory.Exists(resolved)) Directory.Delete(resolved, true);
+        }
+    }
+    private sealed class PickerGrantHandler : HttpMessageHandler
+    {
+        public int? Granted; public int Requests;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            Requests++;
+            object value;
+            System.Text.Json.Serialization.Metadata.JsonTypeInfo info;
+            if (request.RequestUri!.AbsolutePath.EndsWith("/pick", StringComparison.Ordinal))
+            {
+                Check(Granted is > 0, "permission is available before HTTP dispatch");
+                value = new ScreenMonitorOverview(new(Guid.NewGuid(), "test", new()), null, false, true, false, false, "選択中", "", null, null, 0, 0, "");
+                info = WorkerJsonContext.Default.ScreenMonitorOverview;
+            }
+            else { value = new ScreenMonitorList(Guid.NewGuid(), [], 4); info = WorkerJsonContext.Default.ScreenMonitorList; }
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(System.Text.Json.JsonSerializer.Serialize(value, info), System.Text.Encoding.UTF8, "application/json") });
+        }
+    }
     public static async Task SharedKeepAlive()
     {
         var handler = new LifetimeHandler(); using var http = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };

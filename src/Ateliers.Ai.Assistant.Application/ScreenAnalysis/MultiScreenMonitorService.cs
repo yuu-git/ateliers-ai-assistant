@@ -151,7 +151,7 @@ public sealed class MultiScreenMonitorService : IAsyncDisposable
             }
         }
         catch (OperationCanceledException) { lock (_sync) m.State = "選択結果を破棄しました・停止中"; }
-        catch (Exception exception) { _diagnostics.Error("screen.pick", exception); lock (_sync) { m.State = "対象選択失敗"; m.Error = "対象選択を完了できません。選択画面を閉じて再試行してください。"; } }
+        catch (Exception exception) { _diagnostics.Error("screen.pick", exception); lock (_sync) { m.State = "対象選択失敗"; m.Error = exception is WorkerException ? exception.Message : "対象選択を完了できません。選択画面を閉じて再試行してください。"; } }
         finally { lock (_sync) { m.Picking = false; m.Selection?.Dispose(); m.Selection = null; } Changed?.Invoke(this, EventArgs.Empty); }
     }
     /// <summary>新しい実行世代を開始する。定義 ID と過去コメントは維持する。</summary>

@@ -18,7 +18,8 @@ using System;using System.Runtime.InteropServices;public static class MultiMonit
 '@
 function Control($root,[string]$id){$root.FindFirst([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.PropertyCondition]::new([System.Windows.Automation.AutomationElement]::AutomationIdProperty,$id))}
 function Open-Picker($id){
- # UI を介さない API 試験では、OS 選択の所有者へ先に入力フォーカスを渡す。
+ # この API 単体試験は所有者を直接前面化するため、Desktop → Worker の前面表示許可は検証しない。
+ # その回帰確認は --verify-monitor-picker の通常 MainWindow ボタンから行う。
  $pickerOwner=Api GET screen/verification/owner
  [MultiMonitorNative]::ShowWindow([intptr]$pickerOwner.handle,5)|Out-Null
  [MultiMonitorNative]::SetForegroundWindow([intptr]$pickerOwner.handle)|Out-Null

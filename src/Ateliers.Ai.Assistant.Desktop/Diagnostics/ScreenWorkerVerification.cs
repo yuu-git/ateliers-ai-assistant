@@ -20,15 +20,15 @@ namespace Ateliers.Ai.Assistant.Desktop.Diagnostics;
 /// <summary>実際の Desktop プロセスで独立 Worker への再接続を検証する。</summary>
 internal static class ScreenWorkerVerification
 {
-    /// <summary>製品の監視 ViewModel と Markdown 表示で再接続を確認する。</summary>
-    public static Window CreateMonitor(string root, string report)
+    /// <summary>再接続を自動確認する。または Picker の通常ボタン操作を確認する隔離ホストを起動する。</summary>
+    public static Window CreateMonitor(string root, string report, bool pickerOnly = false)
     {
         var paths = new AppDataPaths(Path.Combine(root, "r"), Path.Combine(root, "l"));
         var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
         void Dispatch(Action action) { if (dispatcher.HasThreadAccess) action(); else dispatcher.TryEnqueue(() => action()); }
         var diagnostics = new FileDiagnosticLog(paths, "UI");
         var http = new HttpClient(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false });
-        var api = new WorkerApiClient(http, new(paths));
+        var api = new WorkerApiClient(http, new(paths)) { AllowPickerForeground = Capture.PickerForegroundPermission.Allow };
         var chatHttp = new HttpClient { BaseAddress = new Uri("http://localhost:11434/") };
         var ollama = new OllamaChatService(chatHttp);
         var session = new ChatModelSession(ollama, ollama, FileOperationGate.ForModels(new AppDataPaths())) { CanAutomaticallyUnloadAsync = api.CanAutomaticallyUnloadAsync };
@@ -49,6 +49,7 @@ internal static class ScreenWorkerVerification
                 await window.InitializedForVerification.WaitAsync(TimeSpan.FromSeconds(20));
                 window.NavigateForVerification("Monitor");
                 await vm.RefreshCommand.ExecuteAsync();
+                if (pickerOnly) { File.WriteAllText(report, "READY: normal MainWindow monitor picker"); return; }
                 if (!await view.TranscriptForVerification.Ready.WaitAsync(TimeSpan.FromSeconds(15))) throw new InvalidOperationException("Markdown 表示初期化失敗");
                 await Task.Delay(1200);
                 var rendered = await view.TranscriptForVerification.CoreForVerification.ExecuteScriptAsync("Boolean(document.querySelector('#transcript .body')?.textContent.trim() && /[0-9]{2}:[0-9]{2}:[0-9]{2}/.test(document.querySelector('#transcript .detail')?.textContent || ''))");
@@ -66,9 +67,9 @@ internal static class ScreenWorkerVerification
                 result = System.Text.Json.JsonSerializer.Serialize(list, WorkerJsonContext.Default.ScreenMonitorList);
             }
             catch (Exception exception) { result = "FAIL: " + exception; }
-            finally { PostMessage(WinRT.Interop.WindowNative.GetWindowHandle(window), 0x10, 0, 0); }
+            finally { if (!pickerOnly) PostMessage(WinRT.Interop.WindowNative.GetWindowHandle(window), 0x10, 0, 0); }
         };
-        window.Closed += (_, _) => { File.WriteAllText(report, session.IsClosing ? result : "FAIL: 通常の非同期終了処理を通りませんでした。"); http.Dispose(); chatHttp.Dispose(); };
+        window.Closed += (_, _) => { File.WriteAllText(report, session.IsClosing ? pickerOnly ? "CLOSED: normal picker verification host" : result : "FAIL: 通常の非同期終了処理を通りませんでした。"); http.Dispose(); chatHttp.Dispose(); };
         return window;
     }
     [System.Runtime.InteropServices.DllImport("user32.dll", EntryPoint = "PostMessageW")]
